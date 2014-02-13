@@ -454,7 +454,7 @@ skip:
 
 
 #define CONFIG_KEYLEN 5
-void parse_config_file(const char *file)
+void parse_config_file(const char *cfgfile)
 {
     FILE *f;
     char buf[BUFLEN];
@@ -462,9 +462,9 @@ void parse_config_file(const char *file)
     unsigned int lineno;
     char *base = 0;
 
-    f = fopen(file, "r");
+    f = fopen(cfgfile, "r");
     if (!f)
-        die("cannot open %s\n", file);
+        die("cannot open %s\n", cfgfile);
 
     lineno = 0;
     while(!feof(f))
@@ -485,25 +485,25 @@ void parse_config_file(const char *file)
         {
             if (git_repo_name)
                 die("can only specify one repository in %s at %d\n",
-                        file, lineno);
+                        cfgfile, lineno);
             git_repo_name = strndup(VALUE(buf), VALUE_LEN(buf));
         }
         if (!strncmp(e, "TPFX: ", CONFIG_KEYLEN))
         {
             if (git_tag_prefix)
                 die("can only specify one tag prefix in %s at %d\n",
-                        file, lineno);
+                        cfgfile, lineno);
             git_tag_prefix = strndup(VALUE(buf), VALUE_LEN(buf));
         }
         if (!strncmp(e, "REVN: ", CONFIG_KEYLEN))
         {
             if (rev_type)
                 die("can only specify one revision in %s at %d\n",
-                        file, lineno);
+                        cfgfile, lineno);
             rev_type = strndup(VALUE(buf), VALUE_LEN(buf));
             rev_string = strchr(rev_type, ' ');
             if (!rev_string)
-                die("can't find revision %s at %d\n", file, lineno);
+                die("can't find revision %s at %d\n", cfgfile, lineno);
             *rev_string = 0;
             rev_string ++;
         }
@@ -520,13 +520,12 @@ void parse_config_file(const char *file)
             char *name = strndup(VALUE(buf), VALUE_LEN(buf));
             char *file = strchr(name, ' ');
             if (!file)
-                die("invalid syntax for filter group in %s at %d\n",
-                        file, lineno);
+                die("invalid syntax for filter in %s at %d\n",
+                        cfgfile, lineno);
             *file = 0;
             if (tf_len >= PG_LEN_MAX)
             {
-                log("tf max length exceeded in %s at %d\n",
-                        file, lineno);
+                log("tf max length exceeded in %s at %d\n", cfgfile, lineno);
                 die("increase PG_LEN_MAX and recompile\n");
             }
             tf_list[tf_len].name = name;
@@ -544,13 +543,13 @@ void parse_config_file(const char *file)
     }
 
     if (rev_string == 0)
-        die("no REVN: line found in %s\n", file);
+        die("no REVN: line found in %s\n", cfgfile);
     if (git_tag_prefix == 0)
-        die("no TPFX: line found in %s\n", file);
+        die("no TPFX: line found in %s\n", cfgfile);
     if (git_repo_name == 0)
-        die("no REPO: line found in %s\n", file);
+        die("no REPO: line found in %s\n", cfgfile);
     if (tf_len == 0)
-        die("no fiter groups specified in %s\n", file);
+        die("no fiter specified in %s\n", cfgfile);
 
     fclose(f);
 }
