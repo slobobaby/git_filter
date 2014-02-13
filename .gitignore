@@ -1,0 +1,5 @@
+*.revinfo
+git_filter
+*.o
+libgit2-*
+tags

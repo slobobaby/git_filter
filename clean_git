@@ -1,0 +1,56 @@
+#!/bin/sh
+#
+# Copyright (C) 2014 Brian Murphy <brian@murphy.dk>
+#
+# This file is part of git_filter, distributed under the GNU GPL v2.
+# For full terms see the included COPYING file.
+#
+
+# Create a clone of a repository ORIGIN with a branch DEST
+# which only contains the branch DEST, renamed as master
+
+ORIGIN=$1
+DEST=$2
+
+syntax()
+{
+    echo "syntax: $0 ORIGIN DEST"
+    exit 1
+}
+
+if [ "set${ORIGIN}" == "set" ]; then
+    syntax
+fi
+
+if [ "set${DEST}" == "set" ]; then
+    syntax
+fi
+
+die()
+{
+    echo "ERROR $1"
+    exit 1
+}
+
+clean_git()
+{
+    ORIGIN=$1
+    DEST=$2
+
+    git clone --bare $ORIGIN $DEST || die clone
+    cd $DEST
+    SHA=`git show-ref -s $DEST`
+    if [ "set$SHA" == "set" ]; then
+        echo "Empty reference for $DEST"
+        exit 1
+    fi
+    git update-ref refs/heads/master $SHA || die update-ref
+    git branch|grep -v master|xargs git branch -D
+    git remote rm origin || die deleting origin
+    # need to delete all tags here
+    git reflog expire --expire=now --all || die reflog expire
+    git repack -ad || die repack
+    git gc --prune=now || die prune
+}
+
+clean_git $ORIGIN $DEST

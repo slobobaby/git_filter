@@ -1,0 +1,19 @@
+--- libgit2-0.20.0/Makefile.embed	2013-11-20 12:53:33.000000000 +0100
++++ b/Makefile.embed	2014-02-11 09:57:13.174615693 +0100
+@@ -31,7 +31,7 @@
+ INCLUDES= -I. -Isrc -Iinclude -Ideps/http-parser -Ideps/zlib
+ 
+ DEFINES= $(INCLUDES) -DNO_VIZ -DSTDC -DNO_GZIP -D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE $(EXTRA_DEFINES)
+-CFLAGS= -g $(DEFINES) -Wall -Wextra -Wno-missing-field-initializers -O2 $(EXTRA_CFLAGS)
++CFLAGS= $(DEFINES) -Wall -Wextra -Wno-missing-field-initializers -O2 $(EXTRA_CFLAGS)
+ 
+ SRCS = $(wildcard src/*.c) $(wildcard src/transports/*.c) $(wildcard src/xdiff/*.c) $(wildcard deps/http-parser/*.c) $(wildcard deps/zlib/*.c) src/hash/hash_generic.c
+ 
+@@ -41,7 +41,6 @@
+ 	DEFINES += -DWIN32 -D_WIN32_WINNT=0x0501 -D__USE_MINGW_ANSI_STDIO=1
+ else
+ 	SRCS += $(wildcard src/unix/*.c) 
+-	CFLAGS += -fPIC
+ endif
+ 
+ OBJS = $(patsubst %.c,%.o,$(SRCS))
