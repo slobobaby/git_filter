@@ -11,23 +11,11 @@
 
 #include "git2.h"
 
+#include "git_filter.h"
+#include "git_filter_list.h"
+
 #define STACK_MAX 32
 #define PATH_MAX STACK_MAX
-
-#define log(...) fprintf(stderr, __VA_ARGS__)
-
-#define die(...) do { \
-        log(__VA_ARGS__); \
-        exit(1); \
-    } while(0)
-
-#define A(cond, ...) \
-    do { \
-        if (cond) { \
-            log("error at %d\n", __LINE__); \
-            die(__VA_ARGS__); \
-        } \
-    } while(0)
 
 #define C(git2_call) do { \
     int _error = git2_call; \
@@ -114,15 +102,39 @@ void rev_info_dump(git_oid *o, struct rev_info *ti)
     rev_info_clear(ti);
 }
 
+
+void oid_dump(const char *str, const void *k1)
+{
+    const git_oid *s1 = (const git_oid *)k1;
+    char oid_p[GIT_OID_HEXSZ+1];
+    char *n;
+
+    n = git_oid_tostr(oid_p, GIT_OID_HEXSZ+1, s1);
+
+    fprintf(stderr, "%s: %s\n", str, n);
+}
+
+int oid_cmp(const void *k1, const void *k2)
+{
+    const git_oid *s1 = (const git_oid *)k1;
+    const git_oid *s2 = (const git_oid *)k2;
+
+    return git_oid_cmp(s1, s2);
+}
+
+
 struct tree_filter {
     const char *name;;
     const char *include_file;
     struct include_dirs id;
     struct rev_info ti;
-    git_tree *new_tree_parent;
+
+    /* TODO fix tagging reconstruction and remove these */
     git_commit *parent;
     git_oid parent_oid;
+
     git_repository *repo;
+    git_filter_list_t *revlist;
 };
 
 char *git_repo_name = 0;
@@ -203,6 +215,10 @@ void tree_filter_init(struct tree_filter *tf, git_repository *repo)
     rev_info_init(&tf->ti, tf->name);
 
     tf->repo = repo;
+
+    tf->revlist = list_init(oid_cmp, oid_dump);
+
+    A(tf->revlist == 0, "failed to allocate list");
 }
 
 void tree_filter_fini(struct tree_filter *tf)
@@ -383,15 +399,54 @@ git_tree *filtered_tree(struct include_dirs *id,
     return new_tree;
 }
 
+#define OIDLIST_MAX 16
+typedef struct _commit_list_t
+{
+    const git_commit *list[OIDLIST_MAX];
+    unsigned int len;
+} commit_list_t;
+
+/* find parents the parents of the original commit and 
+   map them to new commits */
+void find_new_parents(git_commit *old, git_filter_list_t *oid_dict, 
+        commit_list_t *commit_list)
+{
+    int cpcount;
+
+    cpcount = git_commit_parentcount(old);
+
+    if (cpcount)
+    {
+        /* find parents */
+        unsigned int n;
+        for (n = 0; n < cpcount; n++)
+        {
+            git_commit *old_parent;
+            const git_oid *old_pid;
+            C(git_commit_parent(&old_parent, old, n));
+            old_pid = git_commit_id(old_parent);
+            const git_commit *newc = list_lookup(oid_dict, old_pid);
+            if (newc == 0)
+                find_new_parents(old_parent, oid_dict, commit_list);
+            else
+            {
+                commit_list->list[commit_list->len] = newc;
+                commit_list->len ++;
+            }
+        }
+    }
+}
+
 
 void create_commit(struct tree_filter *tf, git_tree *tree,
-        git_commit *commit)
+        git_commit *commit, git_oid *commit_id)
 {
     git_tree *new_tree;
     git_oid new_commit_id;
     const char *message;
     const git_signature *committer;
     const git_signature *author;
+    commit_list_t commit_list;
 
     message = git_commit_message(commit);
     committer = git_commit_committer(commit);
@@ -402,30 +457,19 @@ void create_commit(struct tree_filter *tf, git_tree *tree,
     if (git_tree_entrycount(new_tree) == 0)
         return;
 
-    /* skip empty filtered commits */
-    if (tf->new_tree_parent)
-    {
-        if (tree_equal(tf->new_tree_parent, new_tree))
-        {
-            git_tree_free(tf->new_tree_parent);
-            tf->new_tree_parent = 0;
-            goto skip;
-        }
-        git_tree_free(tf->new_tree_parent);
-        tf->new_tree_parent = 0;
-    }
+    author = git_commit_author(commit);
 
-    int pcount;
-    const git_commit *plist[1];
-
-    if (tf->parent)
+    commit_list.len = 0;
+    find_new_parents(commit, tf->revlist, &commit_list);
+    
+    /* skip commits which have identical trees but only
+       in the simple case of one parent */
+    if (commit_list.len == 1)
     {
-        pcount = 1;
-        plist[0] = tf->parent;
-    }
-    else
-    {
-        pcount = 0;
+        git_tree *old_tree;
+        C(git_commit_tree(&old_tree, commit_list.list[0]));
+        if (tree_equal(old_tree, new_tree))
+            return;
     }
 
     C(git_commit_create(&new_commit_id,
@@ -433,13 +477,7 @@ void create_commit(struct tree_filter *tf, git_tree *tree,
                 author, committer,
                 NULL,
                 message, new_tree,
-                pcount, plist));
-
-    if (tf->parent)
-    {
-        git_commit_free(tf->parent);
-        tf->parent = 0;
-    }
+                commit_list.len, commit_list.list));
 
     rev_info_dump(&tf->parent_oid, &tf->ti);
 
@@ -448,8 +486,14 @@ void create_commit(struct tree_filter *tf, git_tree *tree,
 
     git_oid_cpy(&tf->parent_oid, &new_commit_id);
 
-skip:
-    tf->new_tree_parent = new_tree;
+    git_oid *c_id_cp;
+
+    c_id_cp = (git_oid *)malloc(sizeof(git_oid));
+    A(c_id_cp == 0, "no memory");
+
+    *c_id_cp = *commit_id;
+
+    list_add(tf->revlist, c_id_cp, tf->parent);
 }
 
 
@@ -603,19 +647,22 @@ int main(int argc, char *argv[])
         C(git_commit_tree(&tree, commit));
 
         /* skip empty input commits */
-        if (tree_parent && !tree_equal(tree_parent, tree))
+        if (!tree_parent || !tree_equal(tree_parent, tree))
         {
             for (i = 0; i < tf_len; i++)
-                create_commit(&tf_list[i], tree, commit);
+                create_commit(&tf_list[i], tree, commit, &commit_oid);
         }
 
         count ++;
         if (count % 1000 == 0)
             log("count %d\n", count);
 
-	for (i = 0; i < tf_len; i++)
-		rev_info_add(&tf_list[i].ti, &commit_oid);
-	
+        for (i = 0; i < tf_len; i++)
+        {
+            struct tree_filter *tf = &tf_list[i];
+            rev_info_add(&tf->ti, &commit_oid);
+        }
+
         git_commit_free(commit);
         git_tree_free(tree_parent);
         tree_parent = tree;
