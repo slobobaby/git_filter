@@ -16,6 +16,7 @@
 #if MALLOC_STATS
 #include <malloc.h>
 #endif
+#include <regex.h>
 
 #include "git2.h"
 
@@ -566,7 +567,8 @@ int stack_close(dirstack_t *stack, git_oid *new_oid)
     return 0;
 }
 
-git_tree *filtered_tree(include_dirs_t *id,
+#if 0
+git_tree *filtered_tree(include_dirs *id,
         git_tree *tree, git_repository *repo)
 {
     git_tree *new_tree;
@@ -597,6 +599,65 @@ git_tree *filtered_tree(include_dirs_t *id,
 
     return new_tree;
 }
+#else
+#define MAX_REGEX 1
+struct filter_data_t {
+    struct dirstack *stack;
+    regex_t regex[MAX_REGEX];
+    unsigned int regex_len;
+};
+
+int filter(const char *root, const git_tree_entry *entry, void *p)
+{
+    const char *name = git_tree_entry_name(entry);
+    struct filter_data_t *fd = (struct filter_data_t *)p;
+    char path[BUFLEN];
+
+    strncpy(path, root, BUFLEN);
+    strncat(path, name, BUFLEN-strlen(path));
+
+    if (regexec(&fd->regex[0], path, 0, 0, 0) == 0)
+    {
+        printf("%s smells!\n", path);
+        return 0;
+    }
+
+    stack_add(fd->stack, path, entry);
+
+    return 0;
+}
+
+git_tree *filtered_tree(struct include_dirs *id,
+        git_tree *tree, git_repository *repo)
+{
+    git_tree *new_tree;
+    struct dirstack stack[STACK_MAX];
+    git_oid new_oid;
+    struct filter_data_t fd;
+    int err;
+
+    stack_open(stack, repo);
+
+    fd.stack = stack;
+
+    err = regcomp(&fd.regex[0], "^test.c$", REG_NOSUB);
+    if (err < 0)
+    {
+        die("error compiling regular expression %d\n", err);
+    }
+    fd.regex_len = 1;
+
+    C(git_tree_walk(tree, GIT_TREEWALK_PRE, filter, &fd));
+
+    regfree(&fd.regex[0]);
+
+    C(stack_close(stack, &new_oid));
+
+    C(git_tree_lookup(&new_tree, repo, &new_oid));
+
+    return new_tree;
+}
+#endif
 
 void commit_list_init(commit_list_t *cl)
 {
