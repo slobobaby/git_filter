@@ -689,6 +689,23 @@ int main(int argc, char *argv[])
         tree_filter_fini(&tf[i]);
     }
 
+#if 0
+    git_revwalk_sorting(walker, GIT_SORT_TOPOLOGICAL);
+
+    if (!strcmp(rev_type, "ref"))
+        C(git_revwalk_push_ref(walker, rev_string));
+    else if (!strcmp(rev_type, "range"))
+        C(git_revwalk_push_range(walker, rev_string));
+
+    while (!git_revwalk_next(&commit_oid, walker)) {
+        git_commit *commit;
+
+        C(git_commit_lookup(&commit, repo, &commit_oid));
+
+        git_commit_free(commit);
+    }
+#endif
+
     git_revwalk_free(walker);
     git_repository_free(repo);
 
