@@ -15,7 +15,10 @@
 #include "git_filter.h"
 #include "git_filter_list.h"
 
-#define STACK_MAX 32
+#define STACK_CHUNKS 32
+#define INCLUDE_CHUNKS 1024
+#define TAG_INFO_CHUNKS 128
+#define TF_LIST_CHUNKS 32
 
 #define C(git2_call) do { \
     int _error = git2_call; \
@@ -31,15 +34,12 @@
 #define tree_equal(tree1, tree2) git_oid_equal(git_tree_id(tree1), \
             git_tree_id(tree2))
 
-#define INCLUDE_CHUNKS 1024
-
 struct include_dirs {
     char **dirs;
     unsigned int alloc;
     unsigned int len;
 };
 
-#define TAG_INFO_CHUNK 128
 struct rev_info {
     git_oid *id_list;
     unsigned int alloc;
@@ -122,10 +122,10 @@ void rev_info_add(struct rev_info *ti, git_oid *oid)
     if (ti->len == ti->alloc)
     {
         ti->id_list = (git_oid *)
-            realloc(ti->id_list, (ti->alloc + TAG_INFO_CHUNK) *
+            realloc(ti->id_list, (ti->alloc + TAG_INFO_CHUNKS) *
                     sizeof(struct git_oid));
         A(ti->id_list == 0, "failed to realloc");
-        ti->alloc += TAG_INFO_CHUNK;
+        ti->alloc += TAG_INFO_CHUNKS;
     }
     git_oid_cpy(&ti->id_list[ti->len], oid);
     ti->len++;
@@ -198,9 +198,9 @@ char *git_tag_prefix = 0;
 char *rev_type = 0;
 char *rev_string = 0;
 
-#define PG_LEN_MAX 32
 unsigned int tf_len = 0;
-struct tree_filter tf_list[PG_LEN_MAX];
+struct tree_filter *tf_list;
+unsigned int tf_list_alloc = 0;
 
 #define CHECK_FILES 1
 
@@ -284,10 +284,27 @@ typedef struct _dirstack_item_t {
 } dirstack_item_t;
 
 typedef struct _dirstack_t {
-    dirstack_item_t item[STACK_MAX];
+    dirstack_item_t *item;
+    unsigned int alloc;
     unsigned int depth;
     git_repository *repo;
 } dirstack_t;
+
+dirstack_item_t *stack_get_item(dirstack_t *stack, int level)
+{
+    if (stack->alloc <= level)
+    {
+        stack->alloc += STACK_CHUNKS;
+
+        stack->item = realloc(stack->item,
+                stack->alloc * sizeof(dirstack_item_t));
+        A(stack->item == 0, "no memory");
+
+        memset(&stack->item[stack->alloc-STACK_CHUNKS], 0,
+                STACK_CHUNKS * sizeof(dirstack_item_t));
+    }
+    return &stack->item[level];
+}
 
 void _stack_close_to(dirstack_t *stack, unsigned int level)
 {
@@ -295,13 +312,14 @@ void _stack_close_to(dirstack_t *stack, unsigned int level)
 
     for (i = stack->depth - 1; i >= level; i--)
     {
-        dirstack_item_t *cur = &stack->item[i];
+        dirstack_item_t *cur = stack_get_item(stack, i);
+        dirstack_item_t *prev = stack_get_item(stack, i-1);
         git_oid new_oid;
 
         C(git_treebuilder_write(&new_oid, stack->repo, cur->tb));
         git_treebuilder_free(cur->tb);
 
-        C(git_treebuilder_insert(0, stack->item[i-1].tb, cur->name,
+        C(git_treebuilder_insert(0, prev->tb, cur->name,
                     &new_oid, GIT_FILEMODE_TREE));
 
         free(cur->name);
@@ -312,9 +330,7 @@ void _stack_close_to(dirstack_t *stack, unsigned int level)
     stack->depth = level;
 }
 
-
-void _handle_stack(dirstack_t *stack,
-        char **path_c, unsigned int len)
+void _handle_stack(dirstack_t *stack, char **path_c, unsigned int len)
 {
     dirstack_item_t *s;
     unsigned int level;
@@ -324,7 +340,7 @@ void _handle_stack(dirstack_t *stack,
 
     for (level = 1; level <= len; level++)
     {
-        s = &stack->item[level];
+        s = stack_get_item(stack, level);
 
         if (!s->name)
         {
@@ -353,33 +369,53 @@ void _handle_stack(dirstack_t *stack,
 
 void stack_open(dirstack_t *stack, git_repository *repo)
 {
+    dirstack_item_t *di;
     memset(stack, 0, sizeof(*stack));
 
-    C(git_treebuilder_create(&stack->item[0].tb, 0));
+    di = stack_get_item(stack, 0);
+
+    C(git_treebuilder_create(&di->tb, 0));
     stack->depth = 1;
     stack->repo = repo;
 }
 
+
+#define add_pathc(p, item) do { \
+    p[cnt++] = last; \
+    if (cnt == path_size) \
+    { \
+        *p += STACK_CHUNKS; \
+        p = realloc(p, path_size * sizeof(char *)); \
+        A(p == 0, "no memory"); \
+    } \
+} while(0)
+
+
 /* modifies path */
-unsigned int split_path(char **path_sp, char *path)
+unsigned int split_path(char ***path_sp, char *path)
 {
     char *next;
     char *last = path;
     unsigned int cnt;
+    unsigned int path_size = STACK_CHUNKS;
+    char **p = malloc(path_size * sizeof(char *));
+    A(p == 0, "no memory");
 
     cnt = 0;
     while ((next = strchr(last, '/')))
     {
         *next = 0;
-        path_sp[cnt++] = last;
 
-	    A(cnt > STACK_MAX, "%d path components. overflow", cnt);
+        add_pathc(p, last);
+
         last = next + 1;
     }
 
-    path_sp[cnt++] = last;
-    A(cnt > STACK_MAX, "%d path components. overflow", cnt);
-    path_sp[cnt] = 0;
+    add_pathc(p, last);
+
+    p[cnt] = 0;
+
+    *path_sp = p;
 
     return cnt;
 }
@@ -390,32 +426,39 @@ void stack_add(dirstack_t *stack, const char *path,
     const char *name = git_tree_entry_name(ent);
     const git_oid *t_oid = git_tree_entry_id(ent);
     const git_filemode_t t_fm = git_tree_entry_filemode(ent);
-    git_treebuilder *c;
 
     char *tmppath = strdup(path);
-    char *path_sp[STACK_MAX];
+    char **path_sp;
+    dirstack_item_t *di;
 
-    unsigned int cnt = split_path(path_sp, tmppath);
+    unsigned int cnt = split_path(&path_sp, tmppath);
 
     path_sp[cnt-1] = 0;
 
     if (cnt > 1)
         _handle_stack(stack, path_sp, cnt - 1);
 
-    c = stack->item[cnt-1].tb;
+    di = stack_get_item(stack, cnt-1);
 
-    C(git_treebuilder_insert(0, c, name, t_oid, t_fm));
+    C(git_treebuilder_insert(0, di->tb, name, t_oid, t_fm));
 
+    free(path_sp);
     free(tmppath);
 }
 
 int stack_close(dirstack_t *stack, git_oid *new_oid)
 {
+    dirstack_item_t *di;
+
     _stack_close_to(stack, 1);
 
-    C(git_treebuilder_write(new_oid, stack->repo, stack->item[0].tb));
+    di = stack_get_item(stack, 0);
 
-    git_treebuilder_free(stack->item[0].tb);
+    C(git_treebuilder_write(new_oid, stack->repo, di->tb));
+
+    git_treebuilder_free(di->tb);
+
+    free(stack->item);
 
     return 0;
 }
@@ -616,10 +659,12 @@ void parse_config_file(const char *cfgfile)
                 die("invalid syntax for filter in %s at %d\n",
                         cfgfile, lineno);
             *file = 0;
-            if (tf_len >= PG_LEN_MAX)
+
+            if (tf_len >= tf_list_alloc)
             {
-                log("tf max length exceeded in %s at %d\n", cfgfile, lineno);
-                die("increase PG_LEN_MAX and recompile\n");
+                tf_list_alloc += TF_LIST_CHUNKS;
+                tf_list = realloc(tf_list, tf_list_alloc * 
+                        sizeof(struct tree_filter));
             }
             tf_list[tf_len].name = name;
 
