@@ -696,12 +696,8 @@ int main(int argc, char *argv[])
         C(git_commit_lookup(&commit, repo, &commit_oid));
         C(git_commit_tree(&tree, commit));
 
-        /* skip empty input commits */
-        if (!tree_parent || !tree_equal(tree_parent, tree))
-        {
-            for (i = 0; i < tf_len; i++)
-                create_commit(&tf_list[i], tree, commit, &commit_oid);
-        }
+        for (i = 0; i < tf_len; i++)
+            create_commit(&tf_list[i], tree, commit, &commit_oid);
 
         count ++;
         if (count % 1000 == 0)
