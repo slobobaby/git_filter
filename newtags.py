@@ -34,7 +34,7 @@ def getmaps(mapfile, filt = None):
     return map
 
 if len(sys.argv) < 3:
-    raise Exception("Missing Argument: syntax is '%s <revinfo file> <tagfile>'")
+    raise Exception("Missing Argument: syntax is '%s <config file> <tagfile>'")
 
 def parse_config(configfile):
     TAGLEN = 6
@@ -60,17 +60,24 @@ def parse_config(configfile):
     f.close()
     return config
 
-cfg = parse_config("csw.cfg")
+cfg = parse_config(sys.argv[1])
 
 cmd = "git --git-dir=%s/.git rev-list --first-parent %s" % (cfg["REPO"], cfg["REVN"][1])
 revs = subprocess.check_output(cmd.split()).splitlines()
 
-tags = gettags(sys.argv[1])
+tags = gettags(sys.argv[2])
+
+def log(msg):
+    sys.stderr.write(msg + "\n")
 
 for name in cfg["FILT"]:
+    log("STARTING " + name)
+    
     tname = cfg["TPFX"]+name
 
     map = getmaps(name + ".revinfo")
+
+    log("MAPS done")
 
     ctags = []
     for rev in revs:
@@ -79,5 +86,8 @@ for name in cfg["FILT"]:
         if ctags and map.has_key(rev):
             for tag in ctags:
                 cmd = "git --git-dir=%s tag %s %s" % (tname, tag, map[rev])
+                log(cmd)
                 rc = subprocess.call(cmd.split())
             ctags = []
+    log("TAGGING done")
+
