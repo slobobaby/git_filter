@@ -94,22 +94,35 @@ char *local_fgets(FILE *f)
     return line;
 }
 
-#if 0
-void rev_info_(struct rev_info *ti, const char *filename)
+void _rev_info_dump(void *d, const void *k, const void *v)
+{
+    FILE *f = (FILE *)d;
+    char oids1[GIT_OID_HEXSZ+1];
+    char oids2[GIT_OID_HEXSZ+1];
+    const git_oid *o = (const git_oid *)k;
+    const git_oid *cid = git_commit_id((const git_commit *)v);
+
+    fprintf(f, "%s: %s\n",
+            git_oid_tostr(oids1, GIT_OID_HEXSZ+1, o),
+            git_oid_tostr(oids2, GIT_OID_HEXSZ+1, cid)
+           );
+}
+
+void rev_info_dump(dict_t *d, const char *filename)
 {
     FILE *f;
     char *full_path = local_sprintf("%s.revinfo", filename);
 
-    memset(ti, 0, sizeof(*ti));
-
     f = fopen(full_path, "w");
     if (!f)
         die("cannot open %s\n", filename);
-    ti->file = f;
+
+    dict_dump(d, _rev_info_dump, f);
+
+    fclose(f);
 
     free(full_path);
 }
-#endif
 
 int oid_cmp(const void *k1, const void *k2)
 {
@@ -127,10 +140,9 @@ struct tree_filter {
 
     /* TODO fix tagging reconstruction and remove these */
     git_commit *last;
-    git_oid last_oid;
 
     git_repository *repo;
-    dict_t *revlist;
+    dict_t *revdict;
 };
 
 char *git_repo_name = 0;
@@ -208,9 +220,9 @@ void tree_filter_init(struct tree_filter *tf, git_repository *repo)
 
     tf->repo = repo;
 
-    tf->revlist = dict_init(oid_cmp);
+    tf->revdict = dict_init(oid_cmp);
 
-    A(tf->revlist == 0, "failed to allocate list");
+    A(tf->revdict == 0, "failed to allocate list");
 }
 
 void tree_filter_fini(struct tree_filter *tf)
@@ -495,7 +507,7 @@ void create_commit(struct tree_filter *tf, git_tree *tree,
     author = git_commit_author(commit);
 
     commit_list.len = 0;
-    find_new_parents(commit, tf->revlist, &commit_list);
+    find_new_parents(commit, tf->revdict, &commit_list);
     
     /* skip commits which have identical trees but only
        in the simple case of one parent */
@@ -516,8 +528,6 @@ void create_commit(struct tree_filter *tf, git_tree *tree,
 
     C(git_commit_lookup(&tf->last, tf->repo, &new_commit_id));
 
-    git_oid_cpy(&tf->last_oid, &new_commit_id);
-
     git_oid *c_id_cp;
 
     c_id_cp = (git_oid *)malloc(sizeof(git_oid));
@@ -525,7 +535,7 @@ void create_commit(struct tree_filter *tf, git_tree *tree,
 
     *c_id_cp = *commit_id;
 
-    dict_add(tf->revlist, c_id_cp, tf->last);
+    dict_add(tf->revdict, c_id_cp, tf->last);
 }
 
 
@@ -703,6 +713,8 @@ int main(int argc, char *argv[])
         log("final name %s as %s\n", n, tag);
 
         free(tag);
+
+        rev_info_dump(tf->revdict, tf->name);
 
         tree_filter_fini(&tf[i]);
     }
