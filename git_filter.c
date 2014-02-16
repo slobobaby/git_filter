@@ -186,8 +186,8 @@ struct tree_filter {
     struct rev_info ti;
 
     /* TODO fix tagging reconstruction and remove these */
-    git_commit *parent;
-    git_oid parent_oid;
+    git_commit *last;
+    git_oid last_oid;
 
     git_repository *repo;
     git_filter_list_t *revlist;
@@ -532,12 +532,12 @@ void create_commit(struct tree_filter *tf, git_tree *tree,
                 message, new_tree,
                 commit_list.len, commit_list.list));
 
-    rev_info_dump(&tf->parent_oid, &tf->ti);
+    rev_info_dump(&tf->last_oid, &tf->ti);
 
-    C(git_commit_lookup(&tf->parent, tf->repo,
+    C(git_commit_lookup(&tf->last, tf->repo,
                 &new_commit_id));
 
-    git_oid_cpy(&tf->parent_oid, &new_commit_id);
+    git_oid_cpy(&tf->last_oid, &new_commit_id);
 
     git_oid *c_id_cp;
 
@@ -546,7 +546,7 @@ void create_commit(struct tree_filter *tf, git_tree *tree,
 
     *c_id_cp = *commit_id;
 
-    list_add(tf->revlist, c_id_cp, tf->parent);
+    list_add(tf->revlist, c_id_cp, tf->last);
 }
 
 
@@ -654,7 +654,6 @@ int main(int argc, char *argv[])
     git_repository *repo;
     git_revwalk *walker;
     git_oid commit_oid;
-    git_tree *tree_parent = 0;
     unsigned int count;
     unsigned int i;
 
@@ -710,8 +709,7 @@ int main(int argc, char *argv[])
         }
 
         git_commit_free(commit);
-        git_tree_free(tree_parent);
-        tree_parent = tree;
+        git_tree_free(tree);
     }
 
 #define STRLEN 128
@@ -723,7 +721,7 @@ int main(int argc, char *argv[])
         char *n;
         const git_oid *commit_id;
 
-        commit_id = git_commit_id(tf->parent);
+        commit_id = git_commit_id(tf->last);
         n = git_oid_tostr(oid_p, GIT_OID_HEXSZ+1, commit_id);
 
         tag = local_sprintf("refs/heads/%s%s", git_tag_prefix, tf->name);
@@ -732,7 +730,7 @@ int main(int argc, char *argv[])
 
         free(tag);
 
-    	rev_info_dump(&tf->parent_oid, &tf->ti);
+    	rev_info_dump(&tf->last_oid, &tf->ti);
 
         tree_filter_fini(&tf[i]);
     }
