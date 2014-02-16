@@ -278,24 +278,24 @@ void tree_filter_fini(struct tree_filter *tf)
 {
 }
 
-struct dirstack_item {
+typedef struct _dirstack_item_t {
     git_treebuilder *tb;
     char *name;
-};
+} dirstack_item_t;
 
-struct dirstack {
-    struct dirstack_item item[STACK_MAX];
+typedef struct _dirstack_t {
+    dirstack_item_t item[STACK_MAX];
     unsigned int depth;
     git_repository *repo;
-};
+} dirstack_t;
 
-void _stack_close_to(struct dirstack *stack, unsigned int level)
+void _stack_close_to(dirstack_t *stack, unsigned int level)
 {
     unsigned int i;
 
     for (i = stack->depth - 1; i >= level; i--)
     {
-        struct dirstack_item *cur = &stack->item[i];
+        dirstack_item_t *cur = &stack->item[i];
         git_oid new_oid;
 
         C(git_treebuilder_write(&new_oid, stack->repo, cur->tb));
@@ -313,10 +313,10 @@ void _stack_close_to(struct dirstack *stack, unsigned int level)
 }
 
 
-void _handle_stack(struct dirstack *stack,
+void _handle_stack(dirstack_t *stack,
         char **path_c, unsigned int len)
 {
-    struct dirstack_item *s;
+    dirstack_item_t *s;
     unsigned int level;
 
     if (len == 0)
@@ -351,7 +351,7 @@ void _handle_stack(struct dirstack *stack,
     }
 }
 
-void stack_open(struct dirstack *stack, git_repository *repo)
+void stack_open(dirstack_t *stack, git_repository *repo)
 {
     memset(stack, 0, sizeof(*stack));
 
@@ -384,7 +384,7 @@ unsigned int split_path(char **path_sp, char *path)
     return cnt;
 }
 
-void stack_add(struct dirstack *stack, const char *path, 
+void stack_add(dirstack_t *stack, const char *path, 
         const git_tree_entry *ent)
 {
     const char *name = git_tree_entry_name(ent);
@@ -409,7 +409,7 @@ void stack_add(struct dirstack *stack, const char *path,
     free(tmppath);
 }
 
-int stack_close(struct dirstack *stack, git_oid *new_oid)
+int stack_close(dirstack_t *stack, git_oid *new_oid)
 {
     _stack_close_to(stack, 1);
 
@@ -426,9 +426,9 @@ git_tree *filtered_tree(struct include_dirs *id,
     git_tree *new_tree;
     git_oid new_oid;
     int i;
-    struct dirstack stack[STACK_MAX];
+    dirstack_t stack;
 
-    stack_open(stack, repo);
+    stack_open(&stack, repo);
 
     for(i=0; i<id->len; i++)
     {
@@ -440,12 +440,12 @@ git_tree *filtered_tree(struct include_dirs *id,
 
         if (error == 0)
         {
-            stack_add(stack, path, out);
+            stack_add(&stack, path, out);
             git_tree_entry_free(out);
         }
     }
 
-    C(stack_close(stack, &new_oid));
+    C(stack_close(&stack, &new_oid));
 
     C(git_tree_lookup(&new_tree, repo, &new_oid));
 
