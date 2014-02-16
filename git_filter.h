@@ -8,6 +8,7 @@
 
 #define die(...) do { \
         log(__VA_ARGS__); \
+        log("\n"); \
         exit(1); \
     } while(0)
 
