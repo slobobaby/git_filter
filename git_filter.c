@@ -8,6 +8,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <stdarg.h>
 
 #include "git2.h"
 
@@ -46,19 +47,74 @@ struct rev_info {
     FILE *file;
 };
 
+
+#define BUFLEN 5
+char *local_sprintf(const char *format, ...)
+{
+    va_list ap;
+    int cnt;
+    char *out = malloc(BUFLEN);
+
+    A(out == 0, "no memory");
+
+    va_start(ap, format);
+    cnt = vsnprintf(out, BUFLEN, format, ap);
+    va_end(ap);
+
+    if (cnt > BUFLEN)
+    {
+        cnt ++;
+        out = realloc(out, cnt);
+        A(out == 0, "no memory");
+
+        va_start(ap, format);
+        vsnprintf(out, cnt, format, ap);
+        va_end(ap);
+    }
+
+    return out;
+}
+
+char *local_fgets(FILE *f)
+{
+    char *line = 0;
+    char *r;
+    unsigned int len = BUFLEN;
+    size_t slen = 0;
+
+    do {
+        line = realloc(line, len);
+        A(line == 0, "no memory");
+
+        r = fgets(&line[slen], len-slen, f);
+        if (!r)
+        {
+            if (slen != 0)
+                break;
+            free(line);
+            return 0;
+        }
+        slen = strlen(line);
+        len += BUFLEN;
+    } while(line[slen-1] != '\n');
+
+    line[slen - 1] = 0;
+    return line;
+}
+
 void rev_info_init(struct rev_info *ti, const char *filename)
 {
-    char buf[BUFSIZ];
     FILE *f;
-    strcpy(buf, filename);
-    strcat(buf, ".revinfo");
+    char *full_path = local_sprintf("%s.revinfo", filename);
 
     memset(ti, 0, sizeof(*ti));
 
-    f = fopen(buf, "w");
+    f = fopen(full_path, "w");
     if (!f)
         die("cannot open %s\n", filename);
     ti->file = f;
+
+    free(full_path);
 }
 
 void rev_info_add(struct rev_info *ti, git_oid *oid)
@@ -159,11 +215,9 @@ int sort_string(const void *a, const void *b)
 }
 #endif
 
-#define BUFLEN 256
 void include_dirs_init(struct include_dirs *id, const char *file)
 {
     FILE *f;
-    char buf[BUFLEN];
 
     id->dirs = malloc(sizeof (char *) * INCLUDE_CHUNKS);
     id->alloc = INCLUDE_CHUNKS;
@@ -174,7 +228,7 @@ void include_dirs_init(struct include_dirs *id, const char *file)
 
     while(!feof(f))
     {
-        char *e = fgets(buf, BUFLEN, f);
+        char *e = local_fgets(f);
         if (!e)
             break;
         if (id->len == id->alloc)
@@ -184,8 +238,7 @@ void include_dirs_init(struct include_dirs *id, const char *file)
                     id->alloc * sizeof (char *));
         }
 
-        e[strlen(e)-1] = '\0';
-        id->dirs[id->len] = strdup(e);
+        id->dirs[id->len] = e;
         id->len++;
     }
 
@@ -501,8 +554,6 @@ void create_commit(struct tree_filter *tf, git_tree *tree,
 void parse_config_file(const char *cfgfile)
 {
     FILE *f;
-    char buf[BUFLEN];
-    char vbuf[BUFLEN];
     unsigned int lineno;
     char *base = 0;
 
@@ -513,16 +564,15 @@ void parse_config_file(const char *cfgfile)
     lineno = 0;
     while(!feof(f))
     {
-        char *e = fgets(buf, BUFLEN, f);
+        char *e = local_fgets(f);
         if (!e)
             break;
 
         lineno ++;
 
-#define VALUE(buf) (buf+CONFIG_KEYLEN + 1)
-#define VALUE_LEN(buf) (strlen(buf)-2-CONFIG_KEYLEN)
+#define VALUE(buf) (buf+CONFIG_KEYLEN+1)
 
-        if (buf[0] == '#')
+        if (e[0] == '#')
             continue;
 
         if (!strncmp(e, "REPO: ", CONFIG_KEYLEN))
@@ -530,21 +580,21 @@ void parse_config_file(const char *cfgfile)
             if (git_repo_name)
                 die("can only specify one repository in %s at %d\n",
                         cfgfile, lineno);
-            git_repo_name = strndup(VALUE(buf), VALUE_LEN(buf));
+            git_repo_name = strdup(VALUE(e));
         }
         if (!strncmp(e, "TPFX: ", CONFIG_KEYLEN))
         {
             if (git_tag_prefix)
                 die("can only specify one tag prefix in %s at %d\n",
                         cfgfile, lineno);
-            git_tag_prefix = strndup(VALUE(buf), VALUE_LEN(buf));
+            git_tag_prefix = strdup(VALUE(e));
         }
         if (!strncmp(e, "REVN: ", CONFIG_KEYLEN))
         {
             if (rev_type)
                 die("can only specify one revision in %s at %d\n",
                         cfgfile, lineno);
-            rev_type = strndup(VALUE(buf), VALUE_LEN(buf));
+            rev_type = strdup(VALUE(e));
             rev_string = strchr(rev_type, ' ');
             if (!rev_string)
                 die("can't find revision %s at %d\n", cfgfile, lineno);
@@ -557,11 +607,11 @@ void parse_config_file(const char *cfgfile)
             {
                 free(base);
             }
-            base = strndup(VALUE(buf), VALUE_LEN(buf));
+            base = strdup(VALUE(e));
         }
         if (!strncmp(e, "FILT: ", CONFIG_KEYLEN))
         {
-            char *name = strndup(VALUE(buf), VALUE_LEN(buf));
+            char *name = strdup(VALUE(e));
             char *file = strchr(name, ' ');
             if (!file)
                 die("invalid syntax for filter in %s at %d\n",
@@ -575,15 +625,15 @@ void parse_config_file(const char *cfgfile)
             tf_list[tf_len].name = name;
 
             file ++;
+
             if (base)
-            {
-                snprintf(vbuf, BUFLEN, "%s%s", base, file);
-                file = strdup(vbuf);
-            }
+                file = local_sprintf("%s%s", base, file);
             tf_list[tf_len].include_file = file;
 
             tf_len ++;
         }
+
+        free(e);
     }
 
     if (rev_string == 0)
@@ -672,7 +722,7 @@ int main(int argc, char *argv[])
     for (i = 0; i < tf_len; i++)
     {
         char oid_p[GIT_OID_HEXSZ+1];
-        char buf[STRLEN];
+        char *tag;
         struct tree_filter *tf = &tf_list[i];
         char *n;
         const git_oid *commit_id;
@@ -680,9 +730,11 @@ int main(int argc, char *argv[])
         commit_id = git_commit_id(tf->parent);
         n = git_oid_tostr(oid_p, GIT_OID_HEXSZ+1, commit_id);
 
-        snprintf(buf, STRLEN, "refs/heads/%s%s", git_tag_prefix, tf->name);
-        C(git_reference_create(0, tf->repo, buf, commit_id, 1));
-        log("final name %s as %s\n", n, buf);
+        tag = local_sprintf("refs/heads/%s%s", git_tag_prefix, tf->name);
+        C(git_reference_create(0, tf->repo, tag, commit_id, 1));
+        log("final name %s as %s\n", n, tag);
+
+        free(tag);
 
     	rev_info_dump(&tf->parent_oid, &tf->ti);
 
