@@ -29,6 +29,8 @@ REPO=`awk '/^REPO: / {print $2}' $CONFIG_FILE |head -n 1`
 
 NAMES=`awk '/^FILT: / {print $2}' $CONFIG_FILE`
 
+TPFX=`awk '/^TPFX: / {print $2}' $CONFIG_FILE`
+
 for name in $NAMES; do
-    ${ROOT}clean_git $REPO test-$name
+    ${ROOT}clean_git $REPO $TPFX$name
 done
