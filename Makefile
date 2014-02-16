@@ -35,8 +35,8 @@ git_filter.o: $(LIBGIT2_DIR)/.built
 %.o: %.c
 	$(CC) -c $(CFLAGS) $< -o $@
 
-git_filter: git_filter_list.o
-list_test: git_filter_list.o
+git_filter: dict.o
+list_test: dict.o
 $(PROGS): %: %.o
 	$(CC) $(LDFLAGS) $^ $(LDLIBS) -o $@
 

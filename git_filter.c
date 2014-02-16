@@ -13,7 +13,7 @@
 #include "git2.h"
 
 #include "git_filter.h"
-#include "git_filter_list.h"
+#include "dict.h"
 
 #define STACK_CHUNKS 32
 #define INCLUDE_CHUNKS 1024
@@ -39,14 +39,6 @@ struct include_dirs {
     unsigned int alloc;
     unsigned int len;
 };
-
-struct rev_info {
-    git_oid *id_list;
-    unsigned int alloc;
-    unsigned int len;
-    FILE *file;
-};
-
 
 #define BUFLEN 128
 char *local_sprintf(const char *format, ...)
@@ -102,7 +94,8 @@ char *local_fgets(FILE *f)
     return line;
 }
 
-void rev_info_init(struct rev_info *ti, const char *filename)
+#if 0
+void rev_info_(struct rev_info *ti, const char *filename)
 {
     FILE *f;
     char *full_path = local_sprintf("%s.revinfo", filename);
@@ -116,59 +109,7 @@ void rev_info_init(struct rev_info *ti, const char *filename)
 
     free(full_path);
 }
-
-void rev_info_add(struct rev_info *ti, git_oid *oid)
-{
-    if (ti->len == ti->alloc)
-    {
-        ti->id_list = (git_oid *)
-            realloc(ti->id_list, (ti->alloc + TAG_INFO_CHUNKS) *
-                    sizeof(struct git_oid));
-        A(ti->id_list == 0, "failed to realloc");
-        ti->alloc += TAG_INFO_CHUNKS;
-    }
-    git_oid_cpy(&ti->id_list[ti->len], oid);
-    ti->len++;
-}
-
-void rev_info_clear(struct rev_info *ti)
-{
-    ti->len = 0;
-}
-
-void rev_info_dump(git_oid *o, struct rev_info *ti)
-{
-    unsigned int i;
-    char oid_p[GIT_OID_HEXSZ+1];
-    char *n;
-
-    if (ti->len == 0)
-        return;
-
-    n = git_oid_tostr(oid_p, GIT_OID_HEXSZ+1, o);
-    fprintf(ti->file, "%s:", n);
-
-    for (i = 0; i < ti->len; i++)
-    {
-        n = git_oid_tostr(oid_p, GIT_OID_HEXSZ+1, &ti->id_list[i]);
-        fprintf(ti->file, " %s", n);
-    }
-    fprintf(ti->file, "\n");
-
-    rev_info_clear(ti);
-}
-
-
-void oid_dump(const char *str, const void *k1)
-{
-    const git_oid *s1 = (const git_oid *)k1;
-    char oid_p[GIT_OID_HEXSZ+1];
-    char *n;
-
-    n = git_oid_tostr(oid_p, GIT_OID_HEXSZ+1, s1);
-
-    fprintf(stderr, "%s: %s\n", str, n);
-}
+#endif
 
 int oid_cmp(const void *k1, const void *k2)
 {
@@ -183,14 +124,13 @@ struct tree_filter {
     const char *name;;
     const char *include_file;
     struct include_dirs id;
-    struct rev_info ti;
 
     /* TODO fix tagging reconstruction and remove these */
     git_commit *last;
     git_oid last_oid;
 
     git_repository *repo;
-    git_filter_list_t *revlist;
+    dict_t *revlist;
 };
 
 char *git_repo_name = 0;
@@ -265,11 +205,10 @@ void include_dirs_init(struct include_dirs *id, const char *file)
 void tree_filter_init(struct tree_filter *tf, git_repository *repo)
 {
     include_dirs_init(&tf->id, tf->include_file);
-    rev_info_init(&tf->ti, tf->name);
 
     tf->repo = repo;
 
-    tf->revlist = list_init(oid_cmp, oid_dump);
+    tf->revlist = dict_init(oid_cmp);
 
     A(tf->revlist == 0, "failed to allocate list");
 }
@@ -504,7 +443,7 @@ typedef struct _commit_list_t
 
 /* find parents the parents of the original commit and 
    map them to new commits */
-void find_new_parents(git_commit *old, git_filter_list_t *oid_dict, 
+void find_new_parents(git_commit *old, dict_t *oid_dict, 
         commit_list_t *commit_list)
 {
     int cpcount;
@@ -521,7 +460,7 @@ void find_new_parents(git_commit *old, git_filter_list_t *oid_dict,
             const git_oid *old_pid;
             C(git_commit_parent(&old_parent, old, n));
             old_pid = git_commit_id(old_parent);
-            const git_commit *newc = list_lookup(oid_dict, old_pid);
+            const git_commit *newc = dict_lookup(oid_dict, old_pid);
             if (newc == 0)
                 find_new_parents(old_parent, oid_dict, commit_list);
             else
@@ -575,8 +514,6 @@ void create_commit(struct tree_filter *tf, git_tree *tree,
                 message, new_tree,
                 commit_list.len, commit_list.list));
 
-    rev_info_dump(&tf->last_oid, &tf->ti);
-
     C(git_commit_lookup(&tf->last, tf->repo, &new_commit_id));
 
     git_oid_cpy(&tf->last_oid, &new_commit_id);
@@ -588,7 +525,7 @@ void create_commit(struct tree_filter *tf, git_tree *tree,
 
     *c_id_cp = *commit_id;
 
-    list_add(tf->revlist, c_id_cp, tf->last);
+    dict_add(tf->revlist, c_id_cp, tf->last);
 }
 
 
@@ -746,12 +683,6 @@ int main(int argc, char *argv[])
         if (count % 1000 == 0)
             log("count %d\n", count);
 
-        for (i = 0; i < tf_len; i++)
-        {
-            struct tree_filter *tf = &tf_list[i];
-            rev_info_add(&tf->ti, &commit_oid);
-        }
-
         git_commit_free(commit);
         git_tree_free(tree);
     }
@@ -773,27 +704,8 @@ int main(int argc, char *argv[])
 
         free(tag);
 
-    	rev_info_dump(&tf->last_oid, &tf->ti);
-
         tree_filter_fini(&tf[i]);
     }
-
-#if 0
-    git_revwalk_sorting(walker, GIT_SORT_TOPOLOGICAL);
-
-    if (!strcmp(rev_type, "ref"))
-        C(git_revwalk_push_ref(walker, rev_string));
-    else if (!strcmp(rev_type, "range"))
-        C(git_revwalk_push_range(walker, rev_string));
-
-    while (!git_revwalk_next(&commit_oid, walker)) {
-        git_commit *commit;
-
-        C(git_commit_lookup(&commit, repo, &commit_oid));
-
-        git_commit_free(commit);
-    }
-#endif
 
     git_revwalk_free(walker);
     git_repository_free(repo);

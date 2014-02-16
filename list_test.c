@@ -2,7 +2,7 @@
 
 #include "git_filter.h"
 
-#include "git_filter_list.h"
+#include "dict.h"
 
 int string_cmp(const void *k1, const void *k2)
 {
@@ -16,60 +16,61 @@ int string_cmp(const void *k1, const void *k2)
     return strcmp(s1, s2);
 }
 
-void string_dump(const char *p, const void *k)
+void string_dump(void *p, const void *k, const void *v)
 {
-    const char *s = (const char *)k;
+    const char *sk = (const char *)k;
+    const char *sv = (const char *)v;
 
-    printf("%s: %s\n", p, s);
+    printf("%s: %s\n", sk, sv);
 }
 
 int main()
 {
-    git_filter_list_t *list = list_init(string_cmp, string_dump);
+    dict_t *dict = dict_init(string_cmp);
 
-    A(list == 0, "null list");
+    A(dict == 0, "null dict");
 
 #if 0
-    list_add(list, "x", "y");
-    list_add(list, "tine", "tmurphy");
-    list_add(list, "thomas", "tmurphy");
-    list_add(list, "liv", "lmurphy");
-    list_add(list, "brian", "murphy");
-    list_add(list, "a", "b");
+    dict_add(dict, "x", "y");
+    dict_add(dict, "tine", "tmurphy");
+    dict_add(dict, "thomas", "tmurphy");
+    dict_add(dict, "liv", "lmurphy");
+    dict_add(dict, "brian", "murphy");
+    dict_add(dict, "a", "b");
 
-    const void *v = list_lookup(list, "thomas");
+    const void *v = dict_lookup(dict, "thomas");
     printf("lookup %s\n", (const char *)v);
 
-    v = list_lookup(list, "a");
+    v = dict_lookup(dict, "a");
     printf("lookup %s\n", (const char *)v);
 
-    v = list_lookup(list, "liv");
+    v = dict_lookup(dict, "liv");
     printf("lookup %s\n", (const char *)v);
 #endif
 
 #if 0
-    list_add(list, "a", "y");
-    list_add(list, "b", "tmurphy");
-    list_add(list, "c", "tmurphy");
-    list_add(list, "d", "lmurphy");
-    list_add(list, "e", "murphy");
-    list_add(list, "f", "b");
+    dict_add(dict, "a", "y");
+    dict_add(dict, "b", "tmurphy");
+    dict_add(dict, "c", "tmurphy");
+    dict_add(dict, "d", "lmurphy");
+    dict_add(dict, "e", "murphy");
+    dict_add(dict, "f", "b");
 #elif 1
-    list_add(list, "f", "b");
-    list_add(list, "e", "murphy");
-    list_add(list, "d", "lmurphy");
-    list_add(list, "c", "tmurphy");
-    list_add(list, "b", "tmurphy");
-    list_add(list, "a", "y");
+    dict_add(dict, "f", "b");
+    dict_add(dict, "e", "murphy");
+    dict_add(dict, "d", "lmurphy");
+    dict_add(dict, "c", "tmurphy");
+    dict_add(dict, "b", "tmurphy");
+    dict_add(dict, "a", "y");
 #else
-    list_add(list, "c", "tmurphy");
-    list_add(list, "b", "tmurphy");
-    list_add(list, "a", "y");
-    list_add(list, "f", "b");
-    list_add(list, "e", "murphy");
-    list_add(list, "d", "lmurphy");
+    dict_add(dict, "c", "tmurphy");
+    dict_add(dict, "b", "tmurphy");
+    dict_add(dict, "a", "y");
+    dict_add(dict, "f", "b");
+    dict_add(dict, "e", "murphy");
+    dict_add(dict, "d", "lmurphy");
 #endif
 
-    list_dump(list);
+    dict_dump(dict, string_dump, 0);
 
 }
