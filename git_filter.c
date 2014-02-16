@@ -16,7 +16,6 @@
 #include "git_filter_list.h"
 
 #define STACK_MAX 32
-#define PATH_MAX STACK_MAX
 
 #define C(git2_call) do { \
     int _error = git2_call; \
@@ -29,7 +28,8 @@
     } \
 } while(0)
 
-#define tree_equal(tree1, tree2) git_oid_equal(git_tree_id(tree1), git_tree_id(tree2))
+#define tree_equal(tree1, tree2) git_oid_equal(git_tree_id(tree1), \
+            git_tree_id(tree2))
 
 #define INCLUDE_CHUNKS 1024
 
@@ -39,7 +39,7 @@ struct include_dirs {
     unsigned int len;
 };
 
-#define TAG_INFO_CHUNK 16
+#define TAG_INFO_CHUNK 128
 struct rev_info {
     git_oid *id_list;
     unsigned int alloc;
@@ -48,7 +48,7 @@ struct rev_info {
 };
 
 
-#define BUFLEN 5
+#define BUFLEN 128
 char *local_sprintf(const char *format, ...)
 {
     va_list ap;
@@ -314,7 +314,7 @@ void _stack_close_to(struct dirstack *stack, unsigned int level)
 
 
 void _handle_stack(struct dirstack *stack,
-        char *path_c[PATH_MAX], unsigned int len)
+        char **path_c, unsigned int len)
 {
     struct dirstack_item *s;
     unsigned int level;
@@ -361,7 +361,7 @@ void stack_open(struct dirstack *stack, git_repository *repo)
 }
 
 /* modifies path */
-unsigned int split_path(char *path_sp[PATH_MAX], char *path)
+unsigned int split_path(char **path_sp, char *path)
 {
     char *next;
     char *last = path;
@@ -373,12 +373,12 @@ unsigned int split_path(char *path_sp[PATH_MAX], char *path)
         *next = 0;
         path_sp[cnt++] = last;
 
-	A(cnt > PATH_MAX, "%d path components. overflow", cnt);
+	    A(cnt > STACK_MAX, "%d path components. overflow", cnt);
         last = next + 1;
     }
 
     path_sp[cnt++] = last;
-    A(cnt > PATH_MAX, "%d path components. overflow", cnt);
+    A(cnt > STACK_MAX, "%d path components. overflow", cnt);
     path_sp[cnt] = 0;
 
     return cnt;
@@ -393,7 +393,7 @@ void stack_add(struct dirstack *stack, const char *path,
     git_treebuilder *c;
 
     char *tmppath = strdup(path);
-    char *path_sp[PATH_MAX];
+    char *path_sp[STACK_MAX];
 
     unsigned int cnt = split_path(path_sp, tmppath);
 
@@ -534,8 +534,7 @@ void create_commit(struct tree_filter *tf, git_tree *tree,
 
     rev_info_dump(&tf->last_oid, &tf->ti);
 
-    C(git_commit_lookup(&tf->last, tf->repo,
-                &new_commit_id));
+    C(git_commit_lookup(&tf->last, tf->repo, &new_commit_id));
 
     git_oid_cpy(&tf->last_oid, &new_commit_id);
 
@@ -712,7 +711,6 @@ int main(int argc, char *argv[])
         git_tree_free(tree);
     }
 
-#define STRLEN 128
     for (i = 0; i < tf_len; i++)
     {
         char oid_p[GIT_OID_HEXSZ+1];
