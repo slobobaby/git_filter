@@ -73,4 +73,5 @@ int main()
 
     dict_dump(dict, string_dump, 0);
 
+    return 0;
 }
