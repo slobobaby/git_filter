@@ -453,7 +453,7 @@ typedef struct _commit_list_t
     unsigned int len;
 } commit_list_t;
 
-/* find parents the parents of the original commit and 
+/* find the parents of the original commit and
    map them to new commits */
 void find_new_parents(git_commit *old, dict_t *oid_dict, 
         commit_list_t *commit_list)
@@ -477,6 +477,7 @@ void find_new_parents(git_commit *old, dict_t *oid_dict,
                 find_new_parents(old_parent, oid_dict, commit_list);
             else
             {
+                A(commit_list->len >= OIDLIST_MAX, "too many parents");
                 commit_list->list[commit_list->len] = newc;
                 commit_list->len ++;
             }
