@@ -18,19 +18,20 @@ fi
 
 CONFIG_FILE=$1
 
-ROOT=`dirname $0`
-
-echo $ROOT
-if [ "set${ROOT}" != "set" ]; then
-    ROOT=${ROOT}/
-fi
-
 REPO=`awk '/^REPO: / {print $2}' $CONFIG_FILE |head -n 1`
 
 NAMES=`awk '/^FILT: / {print $2}' $CONFIG_FILE`
 
 TPFX=`awk '/^TPFX: / {print $2}' $CONFIG_FILE`
 
+REPO_GIT=$REPO/.git
+
+# repack the source repository to ensure it is compact
+# speeds up the push later
+git --git-dir=$REPO_GIT repack -ad
+
 for name in $NAMES; do
-    ${ROOT}clean_git $REPO $TPFX$name
+    newrepo=$TPFX$name
+    git --git-dir=$newrepo init
+    git --git-dir=$REPO_GIT push $newrepo $newrepo:master
 done

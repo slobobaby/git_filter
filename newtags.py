@@ -1,22 +1,32 @@
 #!/usr/bin/python
 import sys
 import subprocess
+import os
 
 dry_run = False
 fast = True
 
 # need to be able to filter soon
-def gettags(tagfile, filt = None):
-    f = open(tagfile, "r")
+def gettags(repo, is_bare):
+    if not is_bare:
+        repo += "/.git"
+    cmd = "git --git-dir=%s show-ref --tags" % repo
+    raw_tags = subprocess.check_output(cmd.split()).splitlines()
 
-    tag = {}
-    for l in f:
-        (k, v) = l.strip().split()
-        if not tag.has_key(k):
-            tag[k] = []
-        tag[k].append(v)
+    tag_dict = {}
+    tag_prefix = "refs/tags/"
+    for l in raw_tags:
+        (id, full_tag) = l.strip().split()
+        if not full_tag.startswith(tag_prefix):
+            raise Exception("don't understand tag name %s" % full_tag)
 
-    return tag
+        tag = full_tag[len(tag_prefix):]
+
+        if not tag_dict.has_key(id):
+            tag_dict[id] = []
+        tag_dict[id].append(tag)
+
+    return tag_dict
 
 def getmaps(mapfile, filt = None):
     f = open(mapfile, "r")
@@ -35,9 +45,6 @@ def getmaps(mapfile, filt = None):
         rmap[new] = old
 
     return fmap
-
-if len(sys.argv) < 3:
-    raise Exception("Missing Argument: syntax is '%s <config file> <tagfile>'")
 
 def parse_config(configfile):
     TAGLEN = 6
@@ -68,12 +75,15 @@ cfg = parse_config(sys.argv[1])
 cmd = "git --git-dir=%s/.git rev-list --first-parent %s" % (cfg["REPO"], cfg["REVN"][1])
 revs = subprocess.check_output(cmd.split()).splitlines()
 
-tags = gettags(sys.argv[2])
+tags = gettags(cfg["REPO"], False)
 
 def log(msg):
     sys.stderr.write(msg + "\n")
 
 packed_refs_comment = "# added by newtags"
+
+if len(sys.argv) < 2:
+    raise Exception("Missing Argument: syntax is '%s <config file>'")
 
 for name in cfg["FILT"]:
     log("STARTING " + name)
@@ -85,14 +95,17 @@ for name in cfg["FILT"]:
             prefs_file = tname + "/packed-refs"
 
             if not dry_run:
-                f = open(prefs_file, "r")
-                for l in f:
-                    line = l.strip()
-                    if line == packed_refs_comment:
-                        raise Exception("Tagging already done")
-                f.close()
+                if os.path.exists(prefs_file):
+                    f = open(prefs_file, "r")
+                    for l in f:
+                        line = l.strip()
+                        if line == packed_refs_comment:
+                            raise Exception("Tagging already done")
+                    f.close()
 
-                f = open(prefs_file, "a")
+                    f = open(prefs_file, "a")
+                else:
+                    f = open(prefs_file, "w")
 
                 f.write(packed_refs_comment + "\n")
         except:
