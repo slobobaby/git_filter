@@ -3,6 +3,7 @@ import sys
 import subprocess
 
 dry_run = False
+fast = True
 
 # need to be able to filter soon
 def gettags(tagfile, filt = None):
@@ -72,10 +73,31 @@ tags = gettags(sys.argv[2])
 def log(msg):
     sys.stderr.write(msg + "\n")
 
+packed_refs_comment = "# added by newtags"
+
 for name in cfg["FILT"]:
     log("STARTING " + name)
     
     tname = cfg["TPFX"]+name
+
+    if fast:
+        try:
+            prefs_file = tname + "/packed-refs"
+
+            if not dry_run:
+                f = open(prefs_file, "r")
+                for l in f:
+                    line = l.strip()
+                    if line == packed_refs_comment:
+                        raise Exception("Tagging already done")
+                f.close()
+
+                f = open(prefs_file, "a")
+
+                f.write(packed_refs_comment + "\n")
+        except:
+            log("Tagging already done in %s\n" % tname)
+            continue
 
     map = getmaps(name + ".revinfo")
 
@@ -87,10 +109,17 @@ for name in cfg["FILT"]:
             ctags += tags[rev]
         if ctags and map.has_key(rev):
             for tag in ctags:
-                cmd = "git --git-dir=%s tag %s %s" % (tname, tag, map[rev])
-                if not dry_run:
-                    log(cmd)
-                    rc = subprocess.call(cmd.split())
+                if fast:
+                    if not dry_run:
+                        f.write("%s refs/tags/%s\n" % (map[rev], tag))
+                else:
+                    cmd = "git --git-dir=%s tag %s %s" % (tname, tag, map[rev])
+                    if not dry_run:
+                        log(cmd)
+                        rc = subprocess.call(cmd.split())
             ctags = []
     log("TAGGING done")
+
+    if fast:
+        f.close()
 
