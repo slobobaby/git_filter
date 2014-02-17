@@ -2,6 +2,8 @@
 import sys
 import subprocess
 
+dry_run = False
+
 # need to be able to filter soon
 def gettags(tagfile, filt = None):
     f = open(tagfile, "r")
@@ -18,20 +20,20 @@ def gettags(tagfile, filt = None):
 def getmaps(mapfile, filt = None):
     f = open(mapfile, "r")
 
-    map = {}
+    fmap = {}
     rmap = {}
     for l in f:
         (o, n) = l.strip().split(':')
         old = o.strip()
         new = n.strip()
-        if map.has_key(old):
+        if fmap.has_key(old):
             raise Exception("duplicate commit %s" % old)
         if rmap.has_key(new):
-            print("duplicate new commit %s and %s map to %s" % (o, rmap[new], new))
-        map[old] = new
+            log("duplicate (%s, %s) -> %s" % (old, rmap[new], new))
+        fmap[old] = new
         rmap[new] = old
 
-    return map
+    return fmap
 
 if len(sys.argv) < 3:
     raise Exception("Missing Argument: syntax is '%s <config file> <tagfile>'")
@@ -86,8 +88,9 @@ for name in cfg["FILT"]:
         if ctags and map.has_key(rev):
             for tag in ctags:
                 cmd = "git --git-dir=%s tag %s %s" % (tname, tag, map[rev])
-                log(cmd)
-                rc = subprocess.call(cmd.split())
+                if not dry_run:
+                    log(cmd)
+                    rc = subprocess.call(cmd.split())
             ctags = []
     log("TAGGING done")
 
