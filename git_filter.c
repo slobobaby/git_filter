@@ -19,6 +19,8 @@
 #define INCLUDE_CHUNKS 1024
 #define TAG_INFO_CHUNKS 128
 #define TF_LIST_CHUNKS 32
+/* FIXME make list dynamic */
+#define OIDLIST_MAX 16
 
 #define C(git2_call) do { \
     int _error = git2_call; \
@@ -446,7 +448,6 @@ git_tree *filtered_tree(struct include_dirs *id,
     return new_tree;
 }
 
-#define OIDLIST_MAX 16
 typedef struct _commit_list_t
 {
     const git_commit *list[OIDLIST_MAX];
