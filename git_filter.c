@@ -145,6 +145,8 @@ struct tree_filter {
 
     git_repository *repo;
     dict_t *revdict;
+
+    char first;
 };
 
 char *git_repo_name = 0;
@@ -225,6 +227,8 @@ void tree_filter_init(struct tree_filter *tf, git_repository *repo)
     tf->revdict = dict_init(oid_cmp);
 
     A(tf->revdict == 0, "failed to allocate list");
+
+    tf->first = 1;
 }
 
 void tree_filter_fini(struct tree_filter *tf)
@@ -461,6 +465,9 @@ void find_new_parents(git_commit *old, dict_t *oid_dict,
 {
     int cpcount;
 
+    if (old == 0)
+        return;
+
     cpcount = git_commit_parentcount(old);
 
     if (cpcount)
@@ -509,7 +516,10 @@ void create_commit(struct tree_filter *tf, git_tree *tree,
     author = git_commit_author(commit);
 
     commit_list.len = 0;
-    find_new_parents(commit, tf->revdict, &commit_list);
+    if (tf->first)
+        tf->first = 0;
+    else
+        find_new_parents(commit, tf->revdict, &commit_list);
     
     /* skip commits which have identical trees but only
        in the simple case of one parent */
