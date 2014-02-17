@@ -23,6 +23,14 @@ Then run:
 
 ./git_filter git_filter.cfg && ./create_clean_repos git_filter.cfg
 
+Building.
+
+make
+
+should be enough to build the git_filter. It automatically downloads
+libgit2 and builds it as part of the process. It has been tested to compile
+on Mac (with Xcode installed) and on ubuntu linux. Neither of these systems
+had a pre installed libgit2.
 
 The Configuration File Syntax.
 
