@@ -19,8 +19,7 @@
 #define INCLUDE_CHUNKS 1024
 #define TAG_INFO_CHUNKS 128
 #define TF_LIST_CHUNKS 32
-/* FIXME make list dynamic */
-#define OIDLIST_MAX 16
+#define CL_CHUNKS 16
 
 #define C(git2_call) do { \
     int _error = git2_call; \
@@ -454,9 +453,34 @@ git_tree *filtered_tree(struct include_dirs *id,
 
 typedef struct _commit_list_t
 {
-    const git_commit *list[OIDLIST_MAX];
+    const git_commit **list;
     unsigned int len;
+    unsigned int alloc;
 } commit_list_t;
+
+void commit_list_init(commit_list_t *cl)
+{
+    memset(cl, 0, sizeof(*cl));
+}
+
+void commit_list_add(commit_list_t *cl, const git_commit *c)
+{
+    if (cl->len == cl->alloc)
+    {
+        cl->list = realloc(cl->list,
+                (cl->alloc + CL_CHUNKS) * sizeof(git_commit *));
+        cl->alloc += CL_CHUNKS;
+        A(cl->list == 0, "no memory");
+    }
+    cl->list[cl->len] = c;
+    cl->len ++;
+}
+
+void commit_list_free(commit_list_t *cl)
+{
+    free(cl->list);
+    cl->list = 0;
+}
 
 /* find the parents of the original commit and
    map them to new commits */
@@ -484,11 +508,7 @@ void find_new_parents(git_commit *old, dict_t *oid_dict,
             if (newc == 0)
                 find_new_parents(old_parent, oid_dict, commit_list);
             else
-            {
-                A(commit_list->len >= OIDLIST_MAX, "too many parents");
-                commit_list->list[commit_list->len] = newc;
-                commit_list->len ++;
-            }
+                commit_list_add(commit_list, newc);
         }
     }
 }
@@ -515,7 +535,7 @@ void create_commit(struct tree_filter *tf, git_tree *tree,
 
     author = git_commit_author(commit);
 
-    commit_list.len = 0;
+    commit_list_init(&commit_list);
     if (tf->first)
         tf->first = 0;
     else
@@ -537,6 +557,8 @@ void create_commit(struct tree_filter *tf, git_tree *tree,
                 NULL,
                 message, new_tree,
                 commit_list.len, commit_list.list));
+
+    commit_list_free(&commit_list);
 
     C(git_commit_lookup(&tf->last, tf->repo, &new_commit_id));
 
