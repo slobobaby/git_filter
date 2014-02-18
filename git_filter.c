@@ -41,6 +41,31 @@ struct include_dirs {
     unsigned int len;
 };
 
+struct tree_filter {
+    const char *name;;
+    const char *include_file;
+    struct include_dirs id;
+
+    /* TODO fix tagging reconstruction and remove these */
+    git_commit *last;
+
+    git_repository *repo;
+    dict_t *revdict;
+
+    char first;
+};
+
+static char *git_repo_name = 0;
+static char *git_tag_prefix = 0;
+static char *rev_type = 0;
+static char *rev_string = 0;
+
+static unsigned int tf_len = 0;
+static struct tree_filter *tf_list;
+static unsigned int tf_list_alloc = 0;
+
+static char continue_run = 0;
+
 #define BUFLEN 128
 char *local_sprintf(const char *format, ...)
 {
@@ -112,11 +137,12 @@ void _rev_info_dump(void *d, const void *k, const void *v)
 void rev_info_dump(dict_t *d, const char *filename)
 {
     FILE *f;
-    char *full_path = local_sprintf("%s.revinfo", filename);
+    char *full_path = local_sprintf("%s/.git/%s.revinfo",
+            git_repo_name, filename);
 
     f = fopen(full_path, "w");
     if (!f)
-        die("cannot open %s\n", filename);
+        die("Cannot open %s.\n", filename);
 
     dict_dump(d, _rev_info_dump, f);
 
@@ -133,29 +159,6 @@ int oid_cmp(const void *k1, const void *k2)
     return git_oid_cmp(s1, s2);
 }
 
-
-struct tree_filter {
-    const char *name;;
-    const char *include_file;
-    struct include_dirs id;
-
-    /* TODO fix tagging reconstruction and remove these */
-    git_commit *last;
-
-    git_repository *repo;
-    dict_t *revdict;
-
-    char first;
-};
-
-char *git_repo_name = 0;
-char *git_tag_prefix = 0;
-char *rev_type = 0;
-char *rev_string = 0;
-
-unsigned int tf_len = 0;
-struct tree_filter *tf_list;
-unsigned int tf_list_alloc = 0;
 
 #define CHECK_FILES 1
 
@@ -179,7 +182,7 @@ void include_dirs_init(struct include_dirs *id, const char *file)
 
     f = fopen(file, "r");
     if (!f)
-        die("cannot open %s\n", file);
+        die("Cannot open %s.\n", file);
 
     while(!feof(f))
     {
@@ -217,17 +220,105 @@ void include_dirs_init(struct include_dirs *id, const char *file)
 #endif
 }
 
+
+static void save_last_commit(git_oid *commit_id, const char *filename)
+{
+        char oids[GIT_OID_HEXSZ+1];
+
+        FILE *f = fopen(filename, "w");
+        if (!f)
+        {
+            log("WARNING: could not write last commit id file %s", filename);
+            return;
+        }
+
+        fprintf(f, "%s\n", git_oid_tostr(oids, GIT_OID_HEXSZ+1, commit_id));
+
+        fclose(f);
+}
+
+
+static void read_last_commit(git_oid *commit_id, const char *filename)
+{
+        FILE *f = fopen(filename, "r");
+        if (!f)
+            die("Could not open last commit id file %s", filename);
+
+        char *e = local_fgets(f);
+        if (!e)
+            die("Could not read last commit id file %s", filename);
+
+        C(git_oid_fromstr(commit_id, e));
+
+        free(e);
+
+        fclose(f);
+}
+
+
+static unsigned int read_revinfo(dict_t *revdict,
+        git_repository *repo, const char *filename)
+{
+    unsigned int lineno = 0;
+    FILE *f = fopen(filename, "r");
+    if (!f)
+        die("Could not open %s", filename);
+
+    for (;;)
+    {
+        char *e = local_fgets(f);
+        char *v;
+        git_oid coid;
+        git_commit *commit;
+
+        if (e == 0)
+            break;
+
+        lineno ++;
+
+        v = strstr(e, ": ");
+        if (!v)
+            die("could not parse line %d of %s", lineno, filename);
+        v += 2;
+
+        git_oid *oida = malloc(sizeof(git_oid));
+        A(oida == 0, "no memory");
+
+        C(git_oid_fromstr(oida, e));
+        C(git_oid_fromstr(&coid, v));
+
+        C(git_commit_lookup(&commit, repo, &coid));
+
+        dict_add(revdict, oida, commit);
+
+        free(e);
+    }
+
+    fclose(f);
+
+    return lineno;
+}
+
 void tree_filter_init(struct tree_filter *tf, git_repository *repo)
 {
+    int count = 0;
     include_dirs_init(&tf->id, tf->include_file);
 
     tf->repo = repo;
 
     tf->revdict = dict_init(oid_cmp);
-
     A(tf->revdict == 0, "failed to allocate list");
 
-    tf->first = 1;
+    if (continue_run)
+    {
+        char *full_path = local_sprintf("%s/.git/%s.revinfo",
+                git_repo_name, tf->name);
+        count = read_revinfo(tf->revdict, repo, full_path);
+        free(full_path);
+    }
+
+    if (count == 0)
+        tf->first = 1;
 }
 
 void tree_filter_fini(struct tree_filter *tf)
@@ -540,7 +631,7 @@ void create_commit(struct tree_filter *tf, git_tree *tree,
         tf->first = 0;
     else
         find_new_parents(commit, tf->revdict, &commit_list);
-    
+
     /* skip commits which have identical trees but only
        in the simple case of one parent */
     if (commit_list.len == 1)
@@ -681,6 +772,8 @@ int main(int argc, char *argv[])
     git_oid commit_oid;
     unsigned int count;
     unsigned int i;
+    git_oid last_commit_id;
+    char *last_commit_path = 0;
 
     if (argc < 2)
     {
@@ -691,7 +784,16 @@ int main(int argc, char *argv[])
 
     parse_config_file(argv[1]);
 
-    C(git_repository_init(&repo, git_repo_name, 0));
+    C(git_repository_open(&repo, git_repo_name));
+
+    last_commit_path = local_sprintf("%s/.git/last_commit", git_repo_name);
+
+    if (argc > 2 && !strcmp(argv[2], "continue"))
+    {
+        log("Continuing from previous runs.\n");
+        continue_run = 1;
+        read_last_commit(&last_commit_id, last_commit_path);
+    }
 
     for (i = 0; i < tf_len; i++)
         tree_filter_init(&tf_list[i], repo);
@@ -701,10 +803,24 @@ int main(int argc, char *argv[])
 
     if (!strcmp(rev_type, "ref"))
     {
+        if (continue_run)
+        {
+            git_oid ref_id;
+            C(git_reference_name_to_id(&ref_id, repo, rev_string));
+            if (!git_oid_cmp(&ref_id, &last_commit_id))
+            {
+                log("up to date\n");
+                exit(0);
+            }
+            C(git_revwalk_hide(walker, &last_commit_id));
+        }
         C(git_revwalk_push_ref(walker, rev_string));
     }
     else if (!strcmp(rev_type, "range"))
     {
+        if (continue_run)
+            die("cannot continue from a range");
+
         C(git_revwalk_push_range(walker, rev_string));
     }
     else
@@ -731,27 +847,35 @@ int main(int argc, char *argv[])
         git_tree_free(tree);
     }
 
+    log("Processed %d new commit%s.\n", count, count > 1 ? "s" : "");
+
     for (i = 0; i < tf_len; i++)
     {
-        char oid_p[GIT_OID_HEXSZ+1];
+        char oids[GIT_OID_HEXSZ+1];
         char *tag;
         struct tree_filter *tf = &tf_list[i];
-        char *n;
         const git_oid *commit_id;
 
-        commit_id = git_commit_id(tf->last);
-        n = git_oid_tostr(oid_p, GIT_OID_HEXSZ+1, commit_id);
+        if (tf->last)
+        {
+            commit_id = git_commit_id(tf->last);
 
-        tag = local_sprintf("refs/heads/%s%s", git_tag_prefix, tf->name);
-        C(git_reference_create(0, tf->repo, tag, commit_id, 1));
-        log("final name %s as %s\n", n, tag);
-
-        free(tag);
+            tag = local_sprintf("refs/heads/%s%s", git_tag_prefix, tf->name);
+            C(git_reference_create(0, tf->repo, tag, commit_id, 1));
+            log("final name %s as %s\n",
+                    git_oid_tostr(oids, GIT_OID_HEXSZ+1, commit_id), tag);
+            free(tag);
+        } else {
+            log("no change for %s\n", tf->name);
+        }
 
         rev_info_dump(tf->revdict, tf->name);
 
         tree_filter_fini(&tf[i]);
     }
+
+    save_last_commit(&commit_oid, last_commit_path);
+    free(last_commit_path);
 
     git_revwalk_free(walker);
     git_repository_free(repo);
