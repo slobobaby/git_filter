@@ -56,9 +56,11 @@ struct tree_filter {
 };
 
 static char *git_repo_name = 0;
+static char *git_repo_suffix = "";
 static char *git_tag_prefix = 0;
 static char *rev_type = 0;
 static char *rev_string = 0;
+
 
 static unsigned int tf_len = 0;
 static struct tree_filter *tf_list;
@@ -137,8 +139,8 @@ void _rev_info_dump(void *d, const void *k, const void *v)
 void rev_info_dump(dict_t *d, const char *filename)
 {
     FILE *f;
-    char *full_path = local_sprintf("%s/.git/%s.revinfo",
-            git_repo_name, filename);
+    char *full_path = local_sprintf("%s%s%s%s.revinfo",
+            git_repo_name, git_repo_suffix, git_tag_prefix, filename);
 
     f = fopen(full_path, "w");
     if (!f)
@@ -311,8 +313,8 @@ void tree_filter_init(struct tree_filter *tf, git_repository *repo)
 
     if (continue_run)
     {
-        char *full_path = local_sprintf("%s/.git/%s.revinfo",
-                git_repo_name, tf->name);
+        char *full_path = local_sprintf("%s%s%s%s.revinfo",
+                git_repo_name, git_repo_suffix, git_tag_prefix, tf->name);
         count = read_revinfo(tf->revdict, repo, full_path);
         free(full_path);
     }
@@ -785,8 +787,13 @@ int main(int argc, char *argv[])
     parse_config_file(argv[1]);
 
     C(git_repository_open(&repo, git_repo_name));
+    if (!git_repository_is_bare(repo))
+    {
+        git_repo_suffix = "/.git/";
+    }
 
-    last_commit_path = local_sprintf("%s/.git/last_commit", git_repo_name);
+    last_commit_path = local_sprintf("%s%s%slast_commit",
+            git_repo_name, git_repo_suffix, git_tag_prefix);
 
     if (argc > 2 && !strcmp(argv[2], "continue"))
     {
