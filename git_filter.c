@@ -558,6 +558,13 @@ void commit_list_init(commit_list_t *cl)
 
 void commit_list_add(commit_list_t *cl, const git_commit *c)
 {
+    unsigned int i;
+
+    for (i = 0; i < cl->len; i++)
+    {
+        if (!git_oid_cmp(git_commit_id(c), git_commit_id(cl->list[i])))
+                return;
+    }
     if (cl->len == cl->alloc)
     {
         cl->list = realloc(cl->list,
