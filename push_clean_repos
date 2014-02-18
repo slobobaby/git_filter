@@ -8,7 +8,7 @@
 
 syntax()
 {
-    echo "syntax: $0 CONFIGFILE"
+    echo "syntax: $0 CONFIGFILE [init]"
     exit 1
 }
 
@@ -19,9 +19,7 @@ fi
 CONFIG_FILE=$1
 
 REPO=`awk '/^REPO: / {print $2}' $CONFIG_FILE |head -n 1`
-
 NAMES=`awk '/^FILT: / {print $2}' $CONFIG_FILE`
-
 TPFX=`awk '/^TPFX: / {print $2}' $CONFIG_FILE`
 
 REPO_GIT=$REPO/.git
@@ -32,6 +30,8 @@ git --git-dir=$REPO_GIT repack -ad
 
 for name in $NAMES; do
     newrepo=$TPFX$name
-    git --git-dir=$newrepo init
+    if [ "set${2}" == "setinit" ]; then
+        git --git-dir=$newrepo init
+    fi
     git --git-dir=$REPO_GIT push $newrepo $newrepo:master
 done
