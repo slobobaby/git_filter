@@ -22,7 +22,11 @@ REPO=`awk '/^REPO: / {print $2}' $CONFIG_FILE |head -n 1`
 NAMES=`awk '/^FILT: / {print $2}' $CONFIG_FILE`
 TPFX=`awk '/^TPFX: / {print $2}' $CONFIG_FILE`
 
+# try and figure out if the repository is bare or not
 REPO_GIT=$REPO/.git
+if [ ! -d $REPO_GIT ]; then
+    REPO_GIT=$REPO
+fi
 
 # repack the source repository to ensure it is compact
 # speeds up the push later
