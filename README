@@ -24,6 +24,14 @@ Then run:
 
 ./git_filter git_filter.cfg && ./push_clean_repos git_filter.cfg init
 
+git_filter saves the necessary state (in the .git directory) to allow a full
+history processing to be resumed without generating all the initial commits
+again. We can run it once on the entire history and then run it incrementally
+on new commits and produce the same result as starting from scratch each time.
+This results in much shorter processing times. Tell git_filter to do this by adding the option "continue" on the command line after the configuration file, thus:
+
+./git_filter git_filter.cfg continue
+
 Building.
 
 make
