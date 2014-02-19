@@ -52,6 +52,8 @@ struct tree_filter {
     git_repository *repo;
     dict_t *revdict;
 
+    dict_t *deleted_merges;
+
     char first;
 };
 
@@ -60,6 +62,7 @@ static char *git_repo_suffix = "";
 static char *git_tag_prefix = 0;
 static char *rev_type = 0;
 static char *rev_string = 0;
+static char delete_merges = 0;
 
 
 static unsigned int tf_len = 0;
@@ -311,6 +314,9 @@ void tree_filter_init(struct tree_filter *tf, git_repository *repo)
 
     tf->revdict = dict_init(oid_cmp);
     A(tf->revdict == 0, "failed to allocate list");
+
+    tf->deleted_merges = dict_init(oid_cmp);
+    A(tf->deleted_merges == 0, "failed to allocate list");
 
     if (continue_run)
     {
@@ -586,7 +592,7 @@ void commit_list_free(commit_list_t *cl)
 /* find the parents of the original commit and
    map them to new commits */
 void find_new_parents(git_commit *old, dict_t *oid_dict, 
-        commit_list_t *commit_list)
+        dict_t *deleted_merges, commit_list_t *commit_list)
 {
     int cpcount;
 
@@ -606,11 +612,61 @@ void find_new_parents(git_commit *old, dict_t *oid_dict,
             C(git_commit_parent(&old_parent, old, n));
             old_pid = git_commit_id(old_parent);
             const git_commit *newc = dict_lookup(oid_dict, old_pid);
-            if (newc == 0)
-                find_new_parents(old_parent, oid_dict, commit_list);
+            if (newc == 0) {
+                if (delete_merges)
+                    newc = dict_lookup(deleted_merges, old_pid);
+                if (newc != 0)
+                    commit_list_add(commit_list, newc);
+                else
+                    find_new_parents(old_parent, oid_dict, 
+                            deleted_merges, commit_list);
+            }
             else
                 commit_list_add(commit_list, newc);
         }
+    }
+}
+
+int parent_of(const git_commit *a, const git_commit *b)
+{
+    const git_oid *aid = git_commit_id(a);
+    unsigned int cpcount;
+    git_commit *parent;
+    const git_oid *oid = git_commit_id(b);
+
+    cpcount = git_commit_parentcount(b);
+    if (cpcount == 0)
+        return 0;
+
+    C(git_commit_parent(&parent, b, 0));
+    oid = git_commit_id(parent);
+
+    if (!git_oid_cmp(oid, aid))
+    {
+        git_commit_free(parent);
+        return 1;
+    }
+
+    for(;;)
+    {
+        git_commit *new_parent;
+
+        cpcount = git_commit_parentcount(parent);
+        if (cpcount == 0)
+            return 0;
+
+        C(git_commit_parent(&new_parent, parent, 0));
+        git_commit_free(parent);
+
+        oid = git_commit_id(new_parent);
+
+        if (!git_oid_cmp(oid, aid))
+        {
+            git_commit_free(new_parent);
+            return 1;
+        }
+
+        parent = new_parent;
     }
 }
 
@@ -640,7 +696,7 @@ void create_commit(struct tree_filter *tf, git_tree *tree,
     if (tf->first)
         tf->first = 0;
     else
-        find_new_parents(commit, tf->revdict, &commit_list);
+        find_new_parents(commit, tf->revdict, tf->deleted_merges, &commit_list);
 
     /* skip commits which have identical trees but only
        in the simple case of one parent */
@@ -650,6 +706,41 @@ void create_commit(struct tree_filter *tf, git_tree *tree,
         C(git_commit_tree(&old_tree, commit_list.list[0]));
         if (tree_equal(old_tree, new_tree))
             return;
+    }
+    else if (delete_merges && commit_list.len > 1)
+    {
+        unsigned int simplified = 0;
+        unsigned int index = 1;
+        for(unsigned int i = 1; i < commit_list.len; i++)
+        {
+            if (parent_of(commit_list.list[i], commit_list.list[0]))
+            {
+                simplified ++;
+            }
+            else
+            {
+                if (index < i)
+                {
+                    commit_list.list[index] = commit_list.list[i];
+                }
+                index++;
+            }
+        }
+        commit_list.len -= simplified;
+        /* this is a merge commit that has collapsed to nothing cache this 
+           information */
+        if (commit_list.len == 1)
+        {
+            git_oid *c_id_cp;
+
+            c_id_cp = (git_oid *)malloc(sizeof(git_oid));
+            A(c_id_cp == 0, "no memory");
+
+            *c_id_cp = *commit_id;
+
+            dict_add(tf->deleted_merges, c_id_cp, commit_list.list[0]);
+            return;
+        }
     }
 
     C(git_commit_create(&new_commit_id,
