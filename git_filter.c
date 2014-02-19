@@ -212,12 +212,13 @@ void include_dirs_init(struct include_dirs *id, const char *file)
     for (i=1; i<id->len; i++)
     {
         if (!strcmp(id->dirs[i], id->dirs[i-1]))
-            die("duplicate entries for '%s'", id->dirs[i]);
+            die("%s: duplicate entries for '%s'", file, id->dirs[i]);
 
         unsigned int cmplen = strlen(id->dirs[i-1]);
         if (!strncmp(id->dirs[i], id->dirs[i-1], cmplen)
                 && id->dirs[i][cmplen] == '/')
-            die("'%s' is a subdir of '%s'", id->dirs[i], id->dirs[i-1]);
+            die("%s: '%s' is a subdir of '%s'",
+                    file, id->dirs[i], id->dirs[i-1]);
     }
 #endif
 }
