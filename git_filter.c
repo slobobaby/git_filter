@@ -1011,7 +1011,7 @@ int main(int argc, char *argv[])
 
     printf("\n");
 
-    start -= time(0);
+    start = time(0) - start;
 
     printf("Processed %d new commit%s in %lds.\n",
             count, count > 1 ? "s" : "", start);
