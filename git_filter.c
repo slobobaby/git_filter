@@ -916,31 +916,29 @@ static void revwalk_init(git_revwalk *walker, const git_oid *last_commit_id)
     }
 }
 
-#define LEN 128
-void display_progress(unsigned int count, unsigned int total,
-        time_t *last, int force)
+void display_progress(char *s, unsigned int count,
+        unsigned int total, time_t start, int force)
 {
     time_t now;
-    char buf[LEN];
-    unsigned int i;
     unsigned int percent;
-    static int last_count_len = 0;
+    unsigned int time_taken;
+    unsigned int time_remaining;
+    static time_t last = 0;
 
     now = time(0);
-    if (!force && now - *last == 0)
+
+    if (!force && now - last == 0)
         return;
 
-    for (i=0; i<last_count_len; i++)
-        printf("\b");
-    fflush(stdout);
     percent = count * 100 / total;
-    last_count_len = snprintf(buf, LEN, "%d%% (%d/%d)",
-            percent, count, total);
-    if (last_count_len > LEN)
-        last_count_len = LEN;
-    printf("%s", buf);
+    time_taken = now - start;
+    time_remaining = time_taken * (total - count)/ count;
+
+    printf("%s: %d%% (%d/%d) time %ds(%ds)    \r",
+            s, percent, count, total, time_taken, time_remaining);
     fflush(stdout);
-    *last = now;
+
+    last = now;
 }
 
 
@@ -954,7 +952,7 @@ int main(int argc, char *argv[])
     unsigned int i;
     git_oid last_commit_id;
     char *last_commit_path = 0;
-    time_t last, start;
+    time_t start;
 
     if (argc < 2)
     {
@@ -1000,11 +998,8 @@ int main(int argc, char *argv[])
 
     revwalk_init(walker, &last_commit_id);
 
-    printf("Processing commits: ");
-
     count = 0;
     start = time(0);
-    last = start;
 
     while (!git_revwalk_next(&commit_oid, walker)) {
         git_tree *tree;
@@ -1017,13 +1012,13 @@ int main(int argc, char *argv[])
             create_commit(&tf_list[i], tree, commit, &commit_oid);
 
         count ++;
-        display_progress(count, commit_count, &last, 0);
+        display_progress("Processing commits", count, commit_count, start, 0);
 
         git_commit_free(commit);
         git_tree_free(tree);
     }
 
-    display_progress(count, commit_count, &last, 1);
+    display_progress("Processing commits", count, commit_count, start, 1);
 
     printf("\n");
 
