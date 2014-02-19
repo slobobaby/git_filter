@@ -241,6 +241,10 @@ static void save_last_commit(git_oid *commit_id, const char *filename)
             return;
         }
 
+        printf("saved last commit %s to %s\n",
+                git_oid_tostr(oids, GIT_OID_HEXSZ+1, commit_id),
+                filename);
+
         fprintf(f, "%s\n", git_oid_tostr(oids, GIT_OID_HEXSZ+1, commit_id));
 
         fclose(f);
@@ -696,7 +700,7 @@ int parent_of(git_repository *repo, const git_oid *aid, const git_oid *oid)
 
 
 void create_commit(struct tree_filter *tf, git_tree *tree,
-        git_commit *commit, git_oid *commit_id)
+        git_commit *commit, const git_oid *commit_id)
 {
     git_tree *new_tree;
     git_oid new_commit_id;
@@ -965,6 +969,12 @@ int main(int argc, char *argv[])
     commit_count = 0;
     while (!git_revwalk_next(&commit_oid, walker))
         commit_count ++;
+
+    if (commit_count == 0)
+    {
+        printf("No new commits.\n");
+        exit(0);
+    }
 
     revwalk_init(walker, &last_commit_id);
 
