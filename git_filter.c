@@ -934,7 +934,7 @@ void display_progress(unsigned int count, unsigned int total,
         printf("\b");
     fflush(stdout);
     percent = count * 100 / total;
-    last_count_len = snprintf(buf, LEN, "%02d%% (%d/%d)",
+    last_count_len = snprintf(buf, LEN, "%d%% (%d/%d)",
             percent, count, total);
     if (last_count_len > LEN)
         last_count_len = LEN;
