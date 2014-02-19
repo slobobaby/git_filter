@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdarg.h>
+#include <time.h>
 
 #include "git2.h"
 
@@ -927,6 +928,7 @@ int main(int argc, char *argv[])
     git_oid last_commit_id;
     char *last_commit_path = 0;
     unsigned int last_count_len = 0;
+    time_t last, start;
 
     if (argc < 2)
     {
@@ -966,12 +968,16 @@ int main(int argc, char *argv[])
 
     revwalk_init(walker, &last_commit_id);
 
-    printf("processing ");
+    printf("Processing commits: ");
 
     count = 0;
+    start = time(0);
+    last = start;
+
     while (!git_revwalk_next(&commit_oid, walker)) {
         git_tree *tree;
         git_commit *commit;
+        time_t now;
 
         C(git_commit_lookup(&commit, repo, &commit_oid));
         C(git_commit_tree(&tree, commit));
@@ -980,7 +986,8 @@ int main(int argc, char *argv[])
             create_commit(&tf_list[i], tree, commit, &commit_oid);
 
         count ++;
-        if (count % 1000 == 0)
+        now = time(0);
+        if (now - last > 0)
         {
 #define LEN 128
             char buf[LEN];
@@ -995,13 +1002,19 @@ int main(int argc, char *argv[])
                 last_count_len = LEN;
             printf("%s", buf);
             fflush(stdout);
+            last = now;
         }
 
         git_commit_free(commit);
         git_tree_free(tree);
     }
 
-    log("Processed %d new commit%s.\n", count, count > 1 ? "s" : "");
+    printf("\n");
+
+    start -= time(0);
+
+    printf("Processed %d new commit%s in %lds.\n",
+            count, count > 1 ? "s" : "", start);
 
     for (i = 0; i < tf_len; i++)
     {
