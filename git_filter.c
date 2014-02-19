@@ -1045,11 +1045,12 @@ int main(int argc, char *argv[])
 
             tag = local_sprintf("refs/heads/%s%s", git_tag_prefix, tf->name);
             C(git_reference_create(0, tf->repo, tag, commit_id, 1));
-            log("final name %s as %s\n",
-                    git_oid_tostr(oids, GIT_OID_HEXSZ+1, commit_id), tag);
+            log("branch %s%s is now at %s\n",
+                    git_tag_prefix, tf->name,
+                    git_oid_tostr(oids, GIT_OID_HEXSZ+1, commit_id));
             free(tag);
         } else {
-            log("no change for %s\n", tf->name);
+            log("%s%s unchanged\n", git_tag_prefix, tf->name);
         }
 
         rev_info_dump(tf->revdict, tf->name);
