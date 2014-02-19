@@ -892,6 +892,29 @@ void parse_config_file(const char *cfgfile)
     fclose(f);
 }
 
+static void revwalk_init(git_revwalk *walker, const git_oid *last_commit_id)
+{
+    git_revwalk_sorting(walker, GIT_SORT_REVERSE|GIT_SORT_TOPOLOGICAL);
+
+    if (!strcmp(rev_type, "ref"))
+    {
+        C(git_revwalk_push_ref(walker, rev_string));
+        if (continue_run)
+            C(git_revwalk_hide(walker, last_commit_id));
+    }
+    else if (!strcmp(rev_type, "range"))
+    {
+        if (continue_run)
+            die("cannot continue from a range");
+
+        C(git_revwalk_push_range(walker, rev_string));
+    }
+    else
+    {
+        die("invalid revision type %s in REVN", rev_type);
+    }
+}
+
 
 int main(int argc, char *argv[])
 {
@@ -899,9 +922,11 @@ int main(int argc, char *argv[])
     git_revwalk *walker;
     git_oid commit_oid;
     unsigned int count;
+    unsigned int commit_count;
     unsigned int i;
     git_oid last_commit_id;
     char *last_commit_path = 0;
+    unsigned int last_count_len = 0;
 
     if (argc < 2)
     {
@@ -932,34 +957,16 @@ int main(int argc, char *argv[])
         tree_filter_init(&tf_list[i], repo);
 
     C(git_revwalk_new(&walker, repo));
-    git_revwalk_sorting(walker, GIT_SORT_REVERSE|GIT_SORT_TOPOLOGICAL);
 
-    if (!strcmp(rev_type, "ref"))
-    {
-        if (continue_run)
-        {
-            git_oid ref_id;
-            C(git_reference_name_to_id(&ref_id, repo, rev_string));
-            if (!git_oid_cmp(&ref_id, &last_commit_id))
-            {
-                log("up to date\n");
-                exit(0);
-            }
-            C(git_revwalk_hide(walker, &last_commit_id));
-        }
-        C(git_revwalk_push_ref(walker, rev_string));
-    }
-    else if (!strcmp(rev_type, "range"))
-    {
-        if (continue_run)
-            die("cannot continue from a range");
+    revwalk_init(walker, &last_commit_id);
 
-        C(git_revwalk_push_range(walker, rev_string));
-    }
-    else
-    {
-        die("invalid revision type %s in REVN", rev_type);
-    }
+    commit_count = 0;
+    while (!git_revwalk_next(&commit_oid, walker))
+        commit_count ++;
+
+    revwalk_init(walker, &last_commit_id);
+
+    printf("processing ");
 
     count = 0;
     while (!git_revwalk_next(&commit_oid, walker)) {
@@ -974,7 +981,21 @@ int main(int argc, char *argv[])
 
         count ++;
         if (count % 1000 == 0)
-            log("count %d\n", count);
+        {
+#define LEN 128
+            char buf[LEN];
+            unsigned int i;
+            for (i=0; i<last_count_len; i++)
+            {
+                printf("\b");
+            }
+            fflush(stdout);
+            last_count_len = snprintf(buf, LEN, "%d/%d", count, commit_count);
+            if (last_count_len > LEN)
+                last_count_len = LEN;
+            printf("%s", buf);
+            fflush(stdout);
+        }
 
         git_commit_free(commit);
         git_tree_free(tree);
