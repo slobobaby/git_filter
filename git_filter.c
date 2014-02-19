@@ -6,6 +6,8 @@
  *
  */
 
+#define DEBUG 0
+
 #include <stdio.h>
 #include <string.h>
 #include <stdarg.h>
@@ -627,58 +629,67 @@ void find_new_parents(git_commit *old, dict_t *oid_dict,
     }
 }
 
-/* FIXME when we meet a merge commit we need to check each
-   parent to see if they are equal to our target, if so 
-   the branch has been merged to that point and we can drop
-   the new merge */
-int parent_of(const git_commit *a, const git_commit *b)
+int parent_of(git_repository *repo, const git_oid *aid, const git_oid *oid)
 {
-    const git_oid *aid = git_commit_id(a);
     unsigned int cpcount;
-    git_commit *parent;
-    const git_oid *oid = git_commit_id(b);
+    git_commit *commit;
+#if DEBUG
     char oids1[GIT_OID_HEXSZ+1];
     char oids2[GIT_OID_HEXSZ+1];
+#endif
 
-    log("%s parent_of %s\n",
+    dlog("%s parent_of %s\n",
             git_oid_tostr(oids1, GIT_OID_HEXSZ+1, aid),
             git_oid_tostr(oids2, GIT_OID_HEXSZ+1, oid));
- 
-    cpcount = git_commit_parentcount(b);
-    if (cpcount == 0)
-        return 0;
 
-    C(git_commit_parent(&parent, b, 0));
-    oid = git_commit_id(parent);
-    log("    parent %s\n", git_oid_tostr(oids1, GIT_OID_HEXSZ+1, oid));
-
-    if (!git_oid_cmp(oid, aid))
-    {
-        git_commit_free(parent);
-        return 1;
-    }
+    C(git_commit_lookup(&commit, repo, oid));
 
     for(;;)
     {
-        git_commit *new_parent;
+        git_commit *parent = 0;
+        unsigned int i;
 
-        cpcount = git_commit_parentcount(parent);
+        cpcount = git_commit_parentcount(commit);
         if (cpcount == 0)
+        {
+            git_commit_free(commit);
             return 0;
+        }
 
-        C(git_commit_parent(&new_parent, parent, 0));
-        git_commit_free(parent);
+        dlog("    %d parents\n", cpcount);
+        for (i = 1; i < cpcount; i++)
+        {
+            dlog("    index %d\n", i);
+            C(git_commit_parent(&parent, commit, i));
 
-        oid = git_commit_id(new_parent);
-        log("    parent %s\n", git_oid_tostr(oids1, GIT_OID_HEXSZ+1, oid));
+            oid = git_commit_id(parent);
+            dlog("    parent %s\n", git_oid_tostr(oids1, GIT_OID_HEXSZ+1, oid));
+
+            if (!git_oid_cmp(oid, aid))
+            {
+                dlog("    yes!\n");
+                git_commit_free(commit);
+                git_commit_free(parent);
+                return 1;
+            }
+            git_commit_free(parent);
+        }
+
+        C(git_commit_parent(&parent, commit, 0));
+
+        oid = git_commit_id(parent);
+        dlog("    parent %s\n", git_oid_tostr(oids1, GIT_OID_HEXSZ+1, oid));
 
         if (!git_oid_cmp(oid, aid))
         {
-            git_commit_free(new_parent);
+            dlog("    yes!\n");
+            git_commit_free(commit);
+            git_commit_free(parent);
             return 1;
         }
 
-        parent = new_parent;
+        git_commit_free(commit);
+        commit = parent;
     }
 }
 
@@ -727,7 +738,9 @@ void create_commit(struct tree_filter *tf, git_tree *tree,
 
         for(i = 1; i < commit_list.len; i++)
         {
-            if (parent_of(commit_list.list[i], commit_list.list[0]))
+            if (parent_of(tf->repo,
+                        git_commit_id(commit_list.list[i]),
+                        git_commit_id(commit_list.list[0])))
             {
                 simplified ++;
             }

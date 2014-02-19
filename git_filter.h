@@ -6,6 +6,12 @@
 
 #define log(...) fprintf(stderr, __VA_ARGS__)
 
+#if DEBUG
+#define dlog(...) fprintf(stderr, __VA_ARGS__)
+#else
+#define dlog(...)
+#endif
+
 #define die(...) do { \
         log(__VA_ARGS__); \
         log("\n"); \
