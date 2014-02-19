@@ -917,7 +917,8 @@ static void revwalk_init(git_revwalk *walker, const git_oid *last_commit_id)
 }
 
 #define LEN 128
-void display_progress(unsigned int count, unsigned int total, time_t *last)
+void display_progress(unsigned int count, unsigned int total,
+        time_t *last, int force)
 {
     time_t now;
     char buf[LEN];
@@ -926,7 +927,7 @@ void display_progress(unsigned int count, unsigned int total, time_t *last)
     static int last_count_len = 0;
 
     now = time(0);
-    if (now - *last == 0)
+    if (!force && now - *last == 0)
         return;
 
     for (i=0; i<last_count_len; i++)
@@ -1016,13 +1017,13 @@ int main(int argc, char *argv[])
             create_commit(&tf_list[i], tree, commit, &commit_oid);
 
         count ++;
-        display_progress(count, commit_count, &last);
+        display_progress(count, commit_count, &last, 0);
 
         git_commit_free(commit);
         git_tree_free(tree);
     }
 
-    display_progress(count, commit_count, &last);
+    display_progress(count, commit_count, &last, 1);
 
     printf("\n");
 
