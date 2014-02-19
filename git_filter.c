@@ -241,10 +241,6 @@ static void save_last_commit(git_oid *commit_id, const char *filename)
             return;
         }
 
-        printf("saved last commit %s to %s\n",
-                git_oid_tostr(oids, GIT_OID_HEXSZ+1, commit_id),
-                filename);
-
         fprintf(f, "%s\n", git_oid_tostr(oids, GIT_OID_HEXSZ+1, commit_id));
 
         fclose(f);
