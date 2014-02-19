@@ -62,7 +62,7 @@ static char *git_repo_suffix = "";
 static char *git_tag_prefix = 0;
 static char *rev_type = 0;
 static char *rev_string = 0;
-static char delete_merges = 0;
+static char delete_merges = 1;
 
 
 static unsigned int tf_len = 0;
@@ -626,19 +626,30 @@ void find_new_parents(git_commit *old, dict_t *oid_dict,
     }
 }
 
+/* FIXME when we meet a merge commit we need to check each
+   parent to see if they are equal to our target, if so 
+   the branch has been merged to that point and we can drop
+   the new merge */
 int parent_of(const git_commit *a, const git_commit *b)
 {
     const git_oid *aid = git_commit_id(a);
     unsigned int cpcount;
     git_commit *parent;
     const git_oid *oid = git_commit_id(b);
+    char oids1[GIT_OID_HEXSZ+1];
+    char oids2[GIT_OID_HEXSZ+1];
 
+    log("%s parent_of %s\n",
+            git_oid_tostr(oids1, GIT_OID_HEXSZ+1, aid),
+            git_oid_tostr(oids2, GIT_OID_HEXSZ+1, oid));
+ 
     cpcount = git_commit_parentcount(b);
     if (cpcount == 0)
         return 0;
 
     C(git_commit_parent(&parent, b, 0));
     oid = git_commit_id(parent);
+    log("    parent %s\n", git_oid_tostr(oids1, GIT_OID_HEXSZ+1, oid));
 
     if (!git_oid_cmp(oid, aid))
     {
@@ -658,6 +669,7 @@ int parent_of(const git_commit *a, const git_commit *b)
         git_commit_free(parent);
 
         oid = git_commit_id(new_parent);
+        log("    parent %s\n", git_oid_tostr(oids1, GIT_OID_HEXSZ+1, oid));
 
         if (!git_oid_cmp(oid, aid))
         {
