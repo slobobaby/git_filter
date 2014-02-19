@@ -128,31 +128,42 @@ char *local_fgets(FILE *f)
     return line;
 }
 
+typedef struct _rev_info_dump_t
+{
+    FILE *f;
+    const char *prefix;
+} rev_info_dump_t;
+
 void _rev_info_dump(void *d, const void *k, const void *v)
 {
-    FILE *f = (FILE *)d;
+    rev_info_dump_t *ri = (rev_info_dump_t *)d;
     char oids1[GIT_OID_HEXSZ+1];
     char oids2[GIT_OID_HEXSZ+1];
     const git_oid *o = (const git_oid *)k;
     const git_oid *cid = git_commit_id((const git_commit *)v);
 
-    fprintf(f, "%s: %s\n",
+    fprintf(ri->f, "%s%s %s\n", ri->prefix,
             git_oid_tostr(oids1, GIT_OID_HEXSZ+1, o),
             git_oid_tostr(oids2, GIT_OID_HEXSZ+1, cid)
            );
 }
 
-void rev_info_dump(dict_t *d, const char *filename)
+void rev_info_dump(struct tree_filter *tf)
 {
     FILE *f;
+    rev_info_dump_t ri;
     char *full_path = local_sprintf("%s%s%s%s.revinfo",
-            git_repo_name, git_repo_suffix, git_tag_prefix, filename);
+            git_repo_name, git_repo_suffix, git_tag_prefix, tf->name);
 
     f = fopen(full_path, "w");
     if (!f)
-        die("Cannot open %s.\n", filename);
+        die("Cannot open %s.\n", full_path);
 
-    dict_dump(d, _rev_info_dump, f);
+    ri.f = f;
+    ri.prefix = "r:";
+    dict_dump(tf->revdict, _rev_info_dump, &ri);
+    ri.prefix = "m:";
+    dict_dump(tf->deleted_merges, _rev_info_dump, &ri);
 
     fclose(f);
 
@@ -237,7 +248,7 @@ static void save_last_commit(git_oid *commit_id, const char *filename)
         FILE *f = fopen(filename, "w");
         if (!f)
         {
-            log("WARNING: could not write last commit id file %s", filename);
+            printf("WARNING: could not write last commit id file %s", filename);
             return;
         }
 
@@ -265,7 +276,8 @@ static void read_last_commit(git_oid *commit_id, const char *filename)
 }
 
 
-static unsigned int read_revinfo(dict_t *revdict,
+static unsigned int read_revinfo(
+        dict_t *revdict, dict_t *deleted_merges,
         git_repository *repo, const char *filename)
 {
     unsigned int lineno = 0;
@@ -277,6 +289,7 @@ static unsigned int read_revinfo(dict_t *revdict,
     {
         char *e = local_fgets(f);
         char *v;
+        char *k;
         git_oid coid;
         git_commit *commit;
 
@@ -285,20 +298,31 @@ static unsigned int read_revinfo(dict_t *revdict,
 
         lineno ++;
 
-        v = strstr(e, ": ");
+        k = e + 2;
+        v = strstr(e, " ");
         if (!v)
             die("could not parse line %d of %s", lineno, filename);
-        v += 2;
+        v += 1;
 
         git_oid *oida = malloc(sizeof(git_oid));
         A(oida == 0, "no memory");
 
-        C(git_oid_fromstr(oida, e));
+        C(git_oid_fromstr(oida, k));
         C(git_oid_fromstr(&coid, v));
 
         C(git_commit_lookup(&commit, repo, &coid));
 
-        dict_add(revdict, oida, commit);
+        switch (e[0])
+        {
+            case 'r':
+                dict_add(revdict, oida, commit);
+                break;
+            case 'm':
+                dict_add(deleted_merges, oida, commit);
+                break;
+            default:
+                die("illegal entry at line %d of %s", lineno, filename);
+        }
 
         free(e);
     }
@@ -325,7 +349,7 @@ void tree_filter_init(struct tree_filter *tf, git_repository *repo)
     {
         char *full_path = local_sprintf("%s%s%s%s.revinfo",
                 git_repo_name, git_repo_suffix, git_tag_prefix, tf->name);
-        count = read_revinfo(tf->revdict, repo, full_path);
+        count = read_revinfo(tf->revdict, tf->deleted_merges, repo, full_path);
         free(full_path);
     }
 
@@ -956,8 +980,8 @@ int main(int argc, char *argv[])
 
     if (argc < 2)
     {
-        log("please specify the location of a filter configuration\n");
-        log("%s <filter config> [continue]\n", argv[0]);
+        printf("please specify the location of a filter configuration\n");
+        printf("%s <filter config> [continue]\n", argv[0]);
         exit(1);
     }
 
@@ -972,11 +996,20 @@ int main(int argc, char *argv[])
     last_commit_path = local_sprintf("%s%s%slast_commit",
             git_repo_name, git_repo_suffix, git_tag_prefix);
 
-    if (argc > 2 && !strcmp(argv[2], "continue"))
+    if (argc > 2)
     {
-        log("Continuing from previous runs.\n");
-        continue_run = 1;
-        read_last_commit(&last_commit_id, last_commit_path);
+        if(!strcmp(argv[2], "continue"))
+        {    
+            printf("Continuing from previous runs.\n");
+            continue_run = 1;
+            read_last_commit(&last_commit_id, last_commit_path);
+        }
+        else
+        {
+            die("second argument '%s' given. Did you mean 'continue'?",
+                    argv[2]);
+        }
+
     }
 
     for (i = 0; i < tf_len; i++)
@@ -1040,15 +1073,15 @@ int main(int argc, char *argv[])
 
             tag = local_sprintf("refs/heads/%s%s", git_tag_prefix, tf->name);
             C(git_reference_create(0, tf->repo, tag, commit_id, 1));
-            log("branch %s%s is now at %s\n",
+            printf("branch %s%s is now at %s\n",
                     git_tag_prefix, tf->name,
                     git_oid_tostr(oids, GIT_OID_HEXSZ+1, commit_id));
             free(tag);
         } else {
-            log("%s%s unchanged\n", git_tag_prefix, tf->name);
+            printf("%s%s unchanged\n", git_tag_prefix, tf->name);
         }
 
-        rev_info_dump(tf->revdict, tf->name);
+        rev_info_dump(tf);
 
         tree_filter_fini(&tf[i]);
     }
