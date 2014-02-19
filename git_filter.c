@@ -711,7 +711,9 @@ void create_commit(struct tree_filter *tf, git_tree *tree,
     {
         unsigned int simplified = 0;
         unsigned int index = 1;
-        for(unsigned int i = 1; i < commit_list.len; i++)
+        unsigned int i;
+
+        for(i = 1; i < commit_list.len; i++)
         {
             if (parent_of(commit_list.list[i], commit_list.list[0]))
             {
