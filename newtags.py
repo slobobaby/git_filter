@@ -34,7 +34,9 @@ def getmaps(mapfile, filt = None):
     fmap = {}
     rmap = {}
     for l in f:
-        (o, n) = l.strip().split(':')
+        if not l.startswith("r:"):
+            continue
+        (o, n) = l[2:].strip().split()
         old = o.strip()
         new = n.strip()
         if fmap.has_key(old):
@@ -70,6 +72,9 @@ def parse_config(configfile):
     f.close()
     return config
 
+def log(msg):
+    sys.stderr.write(msg + "\n")
+
 cfg = parse_config(sys.argv[1])
 
 cmd = "git --git-dir=%s/.git rev-list --first-parent %s" % (cfg["REPO"], cfg["REVN"][1])
@@ -77,8 +82,7 @@ revs = subprocess.check_output(cmd.split()).splitlines()
 
 tags = gettags(cfg["REPO"], False)
 
-def log(msg):
-    sys.stderr.write(msg + "\n")
+repo_dir = cfg["REPO"] + "/.git"
 
 packed_refs_comment = "# added by newtags"
 
@@ -112,7 +116,7 @@ for name in cfg["FILT"]:
             log("Tagging already done in %s\n" % tname)
             continue
 
-    map = getmaps(name + ".revinfo")
+    map = getmaps("%s/%s.revinfo" % (repo_dir, tname))
 
     log("MAPS done")
 
