@@ -299,8 +299,11 @@ static unsigned int read_revinfo(
         git_oid *oida = malloc(sizeof(git_oid));
         A(oida == 0, "no memory");
 
-        C(git_oid_fromstr(oida, k));
-        C(git_oid_fromstr(&coid, v));
+        if (git_oid_fromstr(oida, k) != 0)
+            die("could not parse line %d of %s", lineno, filename);
+
+        if (git_oid_fromstr(&coid, v) != 0)
+            die("could not parse line %d of %s", lineno, filename);
 
         C(git_commit_lookup(&commit, repo, &coid));
 
