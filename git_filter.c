@@ -630,8 +630,10 @@ void find_new_parents(git_commit *old, dict_t *oid_dict,
         {
             git_commit *old_parent;
             const git_oid *old_pid;
+
             C(git_commit_parent(&old_parent, old, n));
             old_pid = git_commit_id(old_parent);
+
             const git_commit *newc = dict_lookup(oid_dict, old_pid);
             if (newc == 0) {
                 if (delete_merges)
@@ -644,6 +646,8 @@ void find_new_parents(git_commit *old, dict_t *oid_dict,
             }
             else
                 commit_list_add(commit_list, newc);
+
+            git_commit_free(old_parent);
         }
     }
 }
