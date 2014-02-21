@@ -7,11 +7,15 @@
  */
 
 #define DEBUG 0
+#define MALLOC_STATS 0
 
 #include <stdio.h>
 #include <string.h>
 #include <stdarg.h>
 #include <time.h>
+#if MALLOC_STATS
+#include <malloc.h>
+#endif
 
 #include "git2.h"
 
@@ -1106,6 +1110,10 @@ int main(int argc, char *argv[])
 
     git_revwalk_free(walker);
     git_repository_free(repo);
+
+#if MALLOC_STATS
+    malloc_stats();
+#endif
 
     return 0;
 }
