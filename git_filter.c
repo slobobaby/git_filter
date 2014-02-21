@@ -153,7 +153,7 @@ typedef struct _rev_info_dump_t
     const char *prefix;
 } rev_info_dump_t;
 
-void _rev_info_dump(void *d, const void *k, const void *v)
+void _rev_info_dump(void *d, const git_oid *k, const void *v)
 {
     rev_info_dump_t *ri = (rev_info_dump_t *)d;
     char oids1[GIT_OID_HEXSZ+1];
@@ -188,15 +188,6 @@ void rev_info_dump(struct tree_filter *tf)
 
     free(full_path);
 }
-
-int oid_cmp(const void *k1, const void *k2)
-{
-    const git_oid *s1 = (const git_oid *)k1;
-    const git_oid *s2 = (const git_oid *)k2;
-
-    return git_oid_cmp(s1, s2);
-}
-
 
 /* string sorting callback for qsort */
 int sort_string(const void *a, const void *b)
@@ -316,10 +307,9 @@ static unsigned int read_revinfo(
             die("could not parse line %d of %s", lineno, filename);
         v += 1;
 
-        git_oid *oida = malloc(sizeof(git_oid));
-        A(oida == 0, "no memory");
+        git_oid oida;
 
-        if (git_oid_fromstr(oida, k) != 0)
+        if (git_oid_fromstr(&oida, k) != 0)
             die("could not parse line %d of %s", lineno, filename);
 
         if (git_oid_fromstr(&coid, v) != 0)
@@ -330,10 +320,10 @@ static unsigned int read_revinfo(
         switch (e[0])
         {
             case 'r':
-                dict_add(revdict, oida, commit);
+                dict_add(revdict, &oida, commit);
                 break;
             case 'm':
-                dict_add(deleted_merges, oida, commit);
+                dict_add(deleted_merges, &oida, commit);
                 break;
             default:
                 die("illegal entry at line %d of %s", lineno, filename);
@@ -354,11 +344,9 @@ void tree_filter_init(struct tree_filter *tf, git_repository *repo)
 
     tf->repo = repo;
 
-    tf->revdict = dict_init(oid_cmp);
-    A(tf->revdict == 0, "failed to allocate list");
+    tf->revdict = dict_init();
 
-    tf->deleted_merges = dict_init(oid_cmp);
-    A(tf->deleted_merges == 0, "failed to allocate list");
+    tf->deleted_merges = dict_init();
 
     if (continue_run)
     {
@@ -812,14 +800,7 @@ void create_commit(struct tree_filter *tf, git_tree *tree,
            information */
         if (commit_list.len == 1)
         {
-            git_oid *c_id_cp;
-
-            c_id_cp = (git_oid *)malloc(sizeof(git_oid));
-            A(c_id_cp == 0, "no memory");
-
-            *c_id_cp = *commit_id;
-
-            dict_add(tf->deleted_merges, c_id_cp, commit_list.list[0]);
+            dict_add(tf->deleted_merges, commit_id, commit_list.list[0]);
             git_tree_free(new_tree);
             commit_list_free(&commit_list);
             return;
@@ -839,14 +820,7 @@ void create_commit(struct tree_filter *tf, git_tree *tree,
 
     C(git_commit_lookup(&new_commit, tf->repo, &new_commit_id));
 
-    git_oid *c_id_cp;
-
-    c_id_cp = (git_oid *)malloc(sizeof(git_oid));
-    A(c_id_cp == 0, "no memory");
-
-    *c_id_cp = *commit_id;
-
-    dict_add(tf->revdict, c_id_cp, new_commit);
+    dict_add(tf->revdict, commit_id, new_commit);
     tf->last = new_commit_id;
 }
 

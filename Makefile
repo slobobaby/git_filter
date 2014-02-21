@@ -1,4 +1,4 @@
-PROGS = git_filter list_test
+PROGS = git_filter
 CFLAGS = -O2 -Wall -Werror
 CFLAGS += -ggdb
 LIBGIT2_DIR = libgit2-0.20.0
@@ -36,14 +36,13 @@ git_filter.o: $(LIBGIT2_DIR)/.built
 	$(CC) -c $(CFLAGS) $< -o $@
 
 git_filter: dict.o
-list_test: dict.o
 $(PROGS): %: %.o
 	$(CC) $(LDFLAGS) $^ $(LDLIBS) -o $@
 
 clean:
 	rm -f *.o
 	rm -f $(PROGS)
-	rm -fr $(LIBGIT2_DIR)
+	#rm -fr $(LIBGIT2_DIR)
 
 reallyclean: clean
 	rm -f $(LIBGIT2_LOCAL)

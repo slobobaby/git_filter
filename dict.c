@@ -1,5 +1,7 @@
 #include <string.h>
 
+#include "git2.h"
+
 #include "git_filter.h"
 #include "dict.h"
 
@@ -7,26 +9,24 @@
 
 typedef struct _dict_elem_t
 {
-    const void *key;
+    git_oid key;
     const void *value;
 } dict_elem_t;
 
 struct _dict_t 
 {
-    dict_cmp_t *cmp;
     dict_elem_t *dict;
     unsigned int dict_len;
     unsigned int dict_alloc;
 };
 
-dict_t *dict_init(dict_cmp_t *cmp)
+dict_t *dict_init()
 {
     dict_t *dict;
 
     dict = (dict_t *)malloc(sizeof(dict_t));
     A(dict == 0, "no memory");
 
-    dict->cmp = cmp;
     dict->dict = 0;
     dict->dict_len = 0;
     dict->dict_alloc  = 0;
@@ -52,7 +52,7 @@ static int get_pos(dict_t *dict, const void *key)
 
         middle = (start + end)/2;
 
-        cmp = dict->cmp(dict->dict[middle].key, key);
+        cmp = git_oid_cmp(&dict->dict[middle].key, key);
         if (cmp == 0)
             return middle;
         if (cmp < 0)
@@ -65,7 +65,7 @@ static int get_pos(dict_t *dict, const void *key)
 }
 
 
-void dict_add(dict_t *dict, const void *key, const void *value)
+void dict_add(dict_t *dict, const git_oid *key, const void *value)
 {
     int pos;
 
@@ -90,12 +90,12 @@ void dict_add(dict_t *dict, const void *key, const void *value)
 
     }
 
-    dict->dict[pos].key = key;
+    dict->dict[pos].key = *key;
     dict->dict[pos].value = value;
     dict->dict_len ++;
 }
 
-const void *dict_lookup(dict_t *dict, const void *key)
+const void *dict_lookup(dict_t *dict, const git_oid *key)
 {
     int pos = get_pos(dict, key);
     if (pos < 0)
@@ -109,5 +109,5 @@ void dict_dump(dict_t *dict, dict_dump_t *dump, void *data)
     unsigned int i;
 
     for(i=0; i<dict->dict_len;i++)
-        dump(data, dict->dict[i].key, dict->dict[i].value);
+        dump(data, &dict->dict[i].key, dict->dict[i].value);
 }
