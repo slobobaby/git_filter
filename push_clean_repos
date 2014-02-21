@@ -12,7 +12,7 @@ syntax()
     exit 1
 }
 
-if [ "set${1}" == "set" ]; then
+if [ "set${1}" = "set" ]; then
     syntax
 fi
 
