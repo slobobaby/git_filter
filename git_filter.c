@@ -49,7 +49,6 @@ struct tree_filter {
     const char *include_file;
     struct include_dirs id;
 
-    /* TODO fix tagging reconstruction and remove these */
     git_commit *last;
 
     git_repository *repo;
@@ -179,9 +178,6 @@ int oid_cmp(const void *k1, const void *k2)
 }
 
 
-#define CHECK_FILES 1
-
-#if CHECK_FILES
 /* string sorting callback for qsort */
 int sort_string(const void *a, const void *b)
 {
@@ -190,14 +186,15 @@ int sort_string(const void *a, const void *b)
 
     return strcmp(*stra, *strb);
 }
-#endif
 
 void include_dirs_init(struct include_dirs *id, const char *file)
 {
     FILE *f;
+    int i;
 
     id->dirs = malloc(sizeof (char *) * INCLUDE_CHUNKS);
     id->alloc = INCLUDE_CHUNKS;
+    id->len = 0;
 
     f = fopen(file, "r");
     if (!f)
@@ -221,9 +218,6 @@ void include_dirs_init(struct include_dirs *id, const char *file)
 
     fclose(f);
 
-#if CHECK_FILES
-    int i;
-
     qsort(id->dirs, id->len, sizeof(char *), sort_string);
 
     for (i=1; i<id->len; i++)
@@ -237,9 +231,7 @@ void include_dirs_init(struct include_dirs *id, const char *file)
             die("%s: '%s' is a subdir of '%s'",
                     file, id->dirs[i], id->dirs[i-1]);
     }
-#endif
 }
-
 
 static void save_last_commit(git_oid *commit_id, const char *filename)
 {
@@ -538,7 +530,6 @@ int stack_close(dirstack_t *stack, git_oid *new_oid)
     di = stack_get_item(stack, 0);
 
     C(git_treebuilder_write(new_oid, stack->repo, di->tb));
-
     git_treebuilder_free(di->tb);
 
     free(stack->item);
@@ -736,7 +727,10 @@ void create_commit(struct tree_filter *tf, git_tree *tree,
     new_tree = filtered_tree(&tf->id, tree, tf->repo);
 
     if (git_tree_entrycount(new_tree) == 0)
+    {
+        git_tree_free(new_tree);
         return;
+    }
 
     author = git_commit_author(commit);
 
@@ -751,9 +745,17 @@ void create_commit(struct tree_filter *tf, git_tree *tree,
     if (commit_list.len == 1)
     {
         git_tree *old_tree;
+
         C(git_commit_tree(&old_tree, commit_list.list[0]));
+
         if (tree_equal(old_tree, new_tree))
+        {
+            git_tree_free(new_tree);
+            git_tree_free(old_tree);
+            commit_list_free(&commit_list);
             return;
+        }
+        git_tree_free(old_tree);
     }
     else if (delete_merges && commit_list.len > 1)
     {
@@ -791,6 +793,8 @@ void create_commit(struct tree_filter *tf, git_tree *tree,
             *c_id_cp = *commit_id;
 
             dict_add(tf->deleted_merges, c_id_cp, commit_list.list[0]);
+            git_tree_free(new_tree);
+            commit_list_free(&commit_list);
             return;
         }
     }
@@ -801,6 +805,8 @@ void create_commit(struct tree_filter *tf, git_tree *tree,
                 NULL,
                 message, new_tree,
                 commit_list.len, commit_list.list));
+
+    git_tree_free(new_tree);
 
     commit_list_free(&commit_list);
 
@@ -840,7 +846,10 @@ void parse_config_file(const char *cfgfile)
 #define VALUE(buf) (buf+CONFIG_KEYLEN+1)
 
         if (e[0] == '#')
+        {
+            free(e);
             continue;
+        }
 
         if (!strncmp(e, "REPO: ", CONFIG_KEYLEN))
         {
@@ -871,9 +880,7 @@ void parse_config_file(const char *cfgfile)
         if (!strncmp(e, "BASE: ", CONFIG_KEYLEN))
         {
             if (base)
-            {
                 free(base);
-            }
             base = strdup(VALUE(e));
         }
         if (!strncmp(e, "FILT: ", CONFIG_KEYLEN))
@@ -913,6 +920,9 @@ void parse_config_file(const char *cfgfile)
         die("no REPO: line found in %s\n", cfgfile);
     if (tf_len == 0)
         die("no fiter specified in %s\n", cfgfile);
+
+    if (base)
+        free(base);
 
     fclose(f);
 }
