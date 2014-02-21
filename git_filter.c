@@ -53,7 +53,7 @@ struct tree_filter {
     const char *include_file;
     struct include_dirs id;
 
-    git_commit *last;
+    git_oid last;
 
     git_repository *repo;
     dict_t *revdict;
@@ -73,6 +73,23 @@ static char *rev_string = 0;
 static unsigned int tf_len = 0;
 static struct tree_filter *tf_list;
 static unsigned int tf_list_alloc = 0;
+
+static void tf_list_new(const char *name, const char *file)
+{
+    if (tf_len >= tf_list_alloc)
+    {
+        tf_list_alloc += TF_LIST_CHUNKS;
+        tf_list = realloc(tf_list, tf_list_alloc *
+                sizeof(struct tree_filter));
+        memset(&tf_list[tf_list_alloc - TF_LIST_CHUNKS], 0,
+                TF_LIST_CHUNKS * sizeof(struct tree_filter));
+    }
+
+    tf_list[tf_len].name = name;
+    tf_list[tf_len].include_file = file;
+
+    tf_len ++;
+}
 
 static char continue_run = 0;
 
@@ -728,6 +745,7 @@ void create_commit(struct tree_filter *tf, git_tree *tree,
     const git_signature *committer;
     const git_signature *author;
     commit_list_t commit_list;
+    git_commit *new_commit;
 
     message = git_commit_message(commit);
     committer = git_commit_committer(commit);
@@ -819,7 +837,7 @@ void create_commit(struct tree_filter *tf, git_tree *tree,
 
     commit_list_free(&commit_list);
 
-    C(git_commit_lookup(&tf->last, tf->repo, &new_commit_id));
+    C(git_commit_lookup(&new_commit, tf->repo, &new_commit_id));
 
     git_oid *c_id_cp;
 
@@ -828,7 +846,8 @@ void create_commit(struct tree_filter *tf, git_tree *tree,
 
     *c_id_cp = *commit_id;
 
-    dict_add(tf->revdict, c_id_cp, tf->last);
+    dict_add(tf->revdict, c_id_cp, new_commit);
+    tf->last = new_commit_id;
 }
 
 
@@ -837,7 +856,7 @@ void parse_config_file(const char *cfgfile)
 {
     FILE *f;
     unsigned int lineno;
-    char *base = 0;
+    char *base = strdup("");
 
     f = fopen(cfgfile, "r");
     if (!f)
@@ -888,34 +907,22 @@ void parse_config_file(const char *cfgfile)
         }
         if (!strncmp(e, "BASE: ", CONFIG_KEYLEN))
         {
-            if (base)
-                free(base);
+            free(base);
             base = strdup(VALUE(e));
         }
         if (!strncmp(e, "FILT: ", CONFIG_KEYLEN))
         {
-            char *name = strdup(VALUE(e));
+            char *name = VALUE(e);
             char *file = strchr(name, ' ');
             if (!file)
                 die("invalid syntax for filter in %s at %d\n",
                         cfgfile, lineno);
             *file = 0;
-
-            if (tf_len >= tf_list_alloc)
-            {
-                tf_list_alloc += TF_LIST_CHUNKS;
-                tf_list = realloc(tf_list, tf_list_alloc * 
-                        sizeof(struct tree_filter));
-            }
-            tf_list[tf_len].name = name;
-
             file ++;
 
-            if (base)
-                file = local_sprintf("%s%s", base, file);
-            tf_list[tf_len].include_file = file;
+            file = local_sprintf("%s%s", base, file);
 
-            tf_len ++;
+            tf_list_new(strdup(name), file);
         }
 
         free(e);
@@ -930,8 +937,7 @@ void parse_config_file(const char *cfgfile)
     if (tf_len == 0)
         die("no fiter specified in %s\n", cfgfile);
 
-    if (base)
-        free(base);
+    free(base);
 
     fclose(f);
 }
@@ -1084,17 +1090,14 @@ int main(int argc, char *argv[])
         char oids[GIT_OID_HEXSZ+1];
         char *tag;
         struct tree_filter *tf = &tf_list[i];
-        const git_oid *commit_id;
 
-        if (tf->last)
+        if (!git_oid_iszero(&tf->last))
         {
-            commit_id = git_commit_id(tf->last);
-
             tag = local_sprintf("refs/heads/%s%s", git_tag_prefix, tf->name);
-            C(git_reference_create(0, tf->repo, tag, commit_id, 1));
+            C(git_reference_create(0, tf->repo, tag, &tf->last, 1));
             printf("branch %s%s is now at %s\n",
                     git_tag_prefix, tf->name,
-                    git_oid_tostr(oids, GIT_OID_HEXSZ+1, commit_id));
+                    git_oid_tostr(oids, GIT_OID_HEXSZ+1, &tf->last));
             free(tag);
         } else {
             printf("%s%s unchanged\n", git_tag_prefix, tf->name);
