@@ -64,7 +64,6 @@ static char *git_repo_suffix = "";
 static char *git_tag_prefix = 0;
 static char *rev_type = 0;
 static char *rev_string = 0;
-static char delete_merges = 1;
 
 
 static unsigned int tf_len = 0;
@@ -636,8 +635,7 @@ void find_new_parents(git_commit *old, dict_t *oid_dict,
 
             const git_commit *newc = dict_lookup(oid_dict, old_pid);
             if (newc == 0) {
-                if (delete_merges)
-                    newc = dict_lookup(deleted_merges, old_pid);
+                newc = dict_lookup(deleted_merges, old_pid);
                 if (newc != 0)
                     commit_list_add(commit_list, newc);
                 else
@@ -764,7 +762,7 @@ void create_commit(struct tree_filter *tf, git_tree *tree,
         }
         git_tree_free(old_tree);
     }
-    else if (delete_merges && commit_list.len > 1)
+    else if (commit_list.len > 1)
     {
         unsigned int simplified = 0;
         unsigned int index = 1;
