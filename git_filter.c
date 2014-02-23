@@ -28,6 +28,7 @@
 #define TAG_INFO_CHUNKS 128
 #define TF_LIST_CHUNKS 32
 #define CL_CHUNKS 16
+#define BUFLEN 128
 
 #define C(git2_call) do { \
     int _error = git2_call; \
@@ -118,7 +119,6 @@ static void tf_list_new(const char *name, const char *file)
     tf_len ++;
 }
 
-#define BUFLEN 128
 char *local_sprintf(const char *format, ...)
 {
     va_list ap;
@@ -602,58 +602,199 @@ git_tree *filtered_tree(include_dirs *id,
 #else
 #define MAX_REGEX 1
 struct filter_data_t {
-    struct dirstack *stack;
+    dirstack_t *stack;
     regex_t regex[MAX_REGEX];
     unsigned int regex_len;
 };
 
-int filter(const char *root, const git_tree_entry *entry, void *p)
+typedef struct _s2_e_t
 {
-    const char *name = git_tree_entry_name(entry);
-    struct filter_data_t *fd = (struct filter_data_t *)p;
-    char path[BUFLEN];
+    git_tree *tree;
+    size_t idx;
+    size_t count;
+    size_t change_count;
+    const char *name;
+    git_treebuilder *tb;
+} s2_e_t;
 
-    strncpy(path, root, BUFLEN);
-    strncat(path, name, BUFLEN-strlen(path));
+#define STACK_MAX 512
+typedef struct _s2_t
+{
+    s2_e_t stack[STACK_MAX];
+    unsigned int depth;
+} s2_t;
 
-    if (regexec(&fd->regex[0], path, 0, 0, 0) == 0)
+git_tree *tree_walk(git_tree *tree, git_repository *repo,
+    struct filter_data_t *fd)
+{
+    size_t count = git_tree_entrycount(tree);
+    size_t i;
+    size_t idx = 0;
+    git_treebuilder *tb;
+    s2_t st;
+    const char *name;
+    size_t change_count = 0;
+    git_oid new_tree_id;
+
+    memset(&st, 0, sizeof(st));
+    tb = 0;
+
+start:
+    for (;;)
     {
-        printf("%s smells!\n", path);
-        return 0;
+        for (i = idx; i < count; i++)
+        {
+            const git_tree_entry *e = git_tree_entry_byindex(tree, i);
+            const git_oid *t_oid = git_tree_entry_id(e);
+            git_otype type = git_tree_entry_type(e);
+            name = git_tree_entry_name(e);
+
+            if (type == GIT_OBJ_TREE)
+            {
+                s2_e_t *st_ent = &st.stack[st.depth];
+
+                st_ent->tb = tb;
+                st_ent->name = name;
+                st_ent->tree = tree;
+                st_ent->idx = i + 1;
+                st_ent->count = count;
+                st_ent->change_count = change_count;
+
+                st.depth ++;
+
+                C(git_tree_lookup(&tree, repo, t_oid));
+
+                count = git_tree_entrycount(tree);
+                idx = 0;
+                change_count = 0;
+
+                goto start;
+            }
+
+            if (type == GIT_OBJ_BLOB)
+            {
+                if (regexec(&fd->regex[0], name, 0, 0, 0) == 0)
+                {
+                    change_count ++;
+                }
+            }
+        }
+
+        if (change_count)
+        {
+            C(git_treebuilder_create(&tb, 0));
+
+            for (i = 0; i < count; i++)
+            {
+                const git_tree_entry *e = git_tree_entry_byindex(tree, i);
+                const git_oid *t_oid = git_tree_entry_id(e);
+                git_otype type = git_tree_entry_type(e);
+                const git_filemode_t t_fm = git_tree_entry_filemode(e);
+                name = git_tree_entry_name(e);
+
+                if (type == GIT_OBJ_TREE)
+                    C(git_treebuilder_insert(0, tb, name, t_oid, t_fm));
+
+                if (type == GIT_OBJ_BLOB)
+                {
+                    if (regexec(&fd->regex[0], name, 0, 0, 0) != 0)
+                        C(git_treebuilder_insert(0, tb, name, t_oid, t_fm));
+                }
+            }
+
+            /* close current directory */
+            C(git_treebuilder_write(&new_tree_id, repo, tb));
+            git_treebuilder_free(tb);
+            tb = 0;
+        }
+
+        /* pop stack */
+        if (st.depth == 0)
+            break;
+
+        st.depth --;
+
+        s2_e_t *st_ent = &st.stack[st.depth];
+
+        tree = st_ent->tree;
+        idx = st_ent->idx;
+        count = st_ent->count;
+        tb = st_ent->tb;
+        name = st_ent->name;
+
+        if (change_count)
+        {
+            change_count = st_ent->change_count + 1;
+            if (change_count == 1)
+            {
+                C(git_treebuilder_create(&tb, 0));
+                st_ent->tb = tb;
+                for (i = 0; i < idx-1; i++)
+                {
+                    const git_tree_entry *e = git_tree_entry_byindex(tree, i);
+                    const git_oid *t_oid = git_tree_entry_id(e);
+                    const git_filemode_t t_fm = git_tree_entry_filemode(e);
+                    const char *n = git_tree_entry_name(e);
+
+                    C(git_treebuilder_insert(0, tb, n, t_oid, t_fm));
+                }
+            }
+            C(git_treebuilder_insert(0, tb, name,
+                        &new_tree_id, GIT_FILEMODE_TREE));
+        }
+        else
+        {
+            change_count = st_ent->change_count;
+
+            if (change_count)
+            {
+                const git_tree_entry *e = git_tree_entry_byindex(tree, idx-1);
+                const git_oid *t_oid = git_tree_entry_id(e);
+                const git_filemode_t t_fm = git_tree_entry_filemode(e);
+                const char *n = git_tree_entry_name(e);
+
+                A(strcmp(name, n) != 0, "not the same");
+
+                C(git_treebuilder_insert(0, tb, name, t_oid, t_fm));
+            }
+        }
+
+        if (idx > count)
+        {
+            C(git_treebuilder_write(&new_tree_id, repo, tb));
+            git_treebuilder_free(tb);
+            tb = 0;
+        }
     }
 
-    stack_add(fd->stack, path, entry);
+    if (change_count)
+    {
+        git_tree *new_tree;
+        git_tree_lookup(&new_tree, repo, &new_tree_id);
 
-    return 0;
+        return new_tree;
+    }
+    else
+        return 0;
 }
 
 git_tree *filtered_tree(struct include_dirs *id,
         git_tree *tree, git_repository *repo)
 {
     git_tree *new_tree;
-    struct dirstack stack[STACK_MAX];
-    git_oid new_oid;
     struct filter_data_t fd;
     int err;
 
-    stack_open(stack, repo);
-
-    fd.stack = stack;
-
-    err = regcomp(&fd.regex[0], "^test.c$", REG_NOSUB);
+    err = regcomp(&fd.regex[0], "^usim.cpp$", REG_NOSUB);
     if (err < 0)
     {
         die("error compiling regular expression %d\n", err);
     }
     fd.regex_len = 1;
 
-    C(git_tree_walk(tree, GIT_TREEWALK_PRE, filter, &fd));
+    new_tree = tree_walk(tree, repo, &fd);
 
     regfree(&fd.regex[0]);
-
-    C(stack_close(stack, &new_oid));
-
-    C(git_tree_lookup(&new_tree, repo, &new_oid));
 
     return new_tree;
 }
@@ -826,6 +967,9 @@ void create_commit(tree_filter_t *tf, git_tree *tree,
     author = git_commit_author(commit);
 
     new_tree = filtered_tree(&tf->id, tree, tf->repo);
+
+    if (!new_tree)
+        return;
 
     if (git_tree_entrycount(new_tree) == 0)
     {
