@@ -628,19 +628,20 @@ typedef struct _s2_t
 git_tree *tree_walk(git_tree *tree, git_repository *repo,
     struct filter_data_t *fd)
 {
-    size_t count = git_tree_entrycount(tree);
+    size_t count;
     size_t i;
-    size_t idx = 0;
-    git_treebuilder *tb;
     s2_t st;
+    git_oid new_tree_id;
+    size_t idx = 0;
+    git_treebuilder *tb = 0;
     const char *entname = 0;
     const char *dirname = 0;
     size_t change_count = 0;
-    git_oid new_tree_id;
 
     memset(&st, 0, sizeof(st));
     tb = 0;
 
+    count = git_tree_entrycount(tree);
     for (;;)
     {
 start:
@@ -650,8 +651,6 @@ start:
             const git_oid *t_oid = git_tree_entry_id(e);
             git_otype type = git_tree_entry_type(e);
             const char *n = git_tree_entry_name(e);
-
-            printf("n %s\n", n);
 
             if (type == GIT_OBJ_TREE)
             {
@@ -689,7 +688,6 @@ start:
         int new_commit = 0;
         if (change_count)
         {
-            printf("change in %s %d\n", dirname, change_count);
             if (!tb)
             {
                 C(git_treebuilder_create(&tb, 0));
@@ -765,7 +763,6 @@ start:
             }
             if (new_commit)
             {
-                printf("new %s\n", entname);
                 C(git_treebuilder_insert(0, tb, entname,
                             &new_tree_id, GIT_FILEMODE_TREE));
             }
@@ -799,7 +796,7 @@ git_tree *filtered_tree(struct include_dirs *id,
     struct filter_data_t fd;
     int err;
 
-    err = regcomp(&fd.regex[0], "^usim.cpp$", REG_NOSUB);
+    err = regcomp(&fd.regex[0], "^Makefile$", REG_NOSUB);
     if (err < 0)
     {
         die("error compiling regular expression %d\n", err);
