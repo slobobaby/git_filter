@@ -635,6 +635,7 @@ git_tree *tree_walk(git_tree *tree, git_repository *repo,
     git_treebuilder *tb = 0;
     const char *entname = 0;
     size_t change_count = 0;
+    char oids[GIT_OID_HEXSZ+1];
 
     memset(&st, 0, sizeof(st));
     tb = 0;
@@ -663,11 +664,16 @@ start:
 
                 st.depth ++;
 
+                log("lookup repo %p oid %s\n", repo, git_oid_tostr(oids, GIT_OID_HEXSZ+1, t_oid));
+
                 C(git_tree_lookup(&tree, repo, t_oid));
+
+                log("lookup done\n");
 
                 count = git_tree_entrycount(tree);
                 idx = 0;
                 change_count = 0;
+                tb = 0;
 
                 goto start;
             }
@@ -742,6 +748,12 @@ start:
             
         if (change_count)
         {
+            log("add in ");
+            for (i=0;i<st.depth;i++)
+            {
+                log("%s,", st.stack[i].entname);
+            }
+            log("\n");
             /* catch up */
             if (!tb)
             {
@@ -758,8 +770,11 @@ start:
             }
             if (new_commit)
             {
+                log("add to %p\n", tb);
+                log("name %s oid %s\n", entname, git_oid_tostr(oids, GIT_OID_HEXSZ+1, &new_tree_id));
                 C(git_treebuilder_insert(0, tb, entname,
                             &new_tree_id, GIT_FILEMODE_TREE));
+                log("done\n");
             }
             else
             {
@@ -791,7 +806,8 @@ git_tree *filtered_tree(struct include_dirs *id,
     struct filter_data_t fd;
     int err;
 
-    err = regcomp(&fd.regex[0], "^usim.cpp$", REG_NOSUB);
+//err = regcomp(&fd.regex[0], "^Makefile$", REG_NOSUB);
+    err = regcomp(&fd.regex[0], "^aero_flex_dll.vcxproj$", REG_NOSUB);
     if (err < 0)
     {
         die("error compiling regular expression %d\n", err);
