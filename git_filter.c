@@ -613,7 +613,8 @@ typedef struct _s2_e_t
     size_t idx;
     size_t count;
     size_t change_count;
-    const char *name;
+    const char *dirname;
+    const char *entname;
     git_treebuilder *tb;
 } s2_e_t;
 
@@ -632,29 +633,33 @@ git_tree *tree_walk(git_tree *tree, git_repository *repo,
     size_t idx = 0;
     git_treebuilder *tb;
     s2_t st;
-    const char *name;
+    const char *entname = 0;
+    const char *dirname = 0;
     size_t change_count = 0;
     git_oid new_tree_id;
 
     memset(&st, 0, sizeof(st));
     tb = 0;
 
-start:
     for (;;)
     {
+start:
         for (i = idx; i < count; i++)
         {
             const git_tree_entry *e = git_tree_entry_byindex(tree, i);
             const git_oid *t_oid = git_tree_entry_id(e);
             git_otype type = git_tree_entry_type(e);
-            name = git_tree_entry_name(e);
+            const char *n = git_tree_entry_name(e);
+
+            printf("n %s\n", n);
 
             if (type == GIT_OBJ_TREE)
             {
                 s2_e_t *st_ent = &st.stack[st.depth];
 
                 st_ent->tb = tb;
-                st_ent->name = name;
+                st_ent->dirname = dirname;
+                st_ent->entname = n;
                 st_ent->tree = tree;
                 st_ent->idx = i + 1;
                 st_ent->count = count;
@@ -667,38 +672,44 @@ start:
                 count = git_tree_entrycount(tree);
                 idx = 0;
                 change_count = 0;
+                dirname = n;
 
                 goto start;
             }
 
             if (type == GIT_OBJ_BLOB)
             {
-                if (regexec(&fd->regex[0], name, 0, 0, 0) == 0)
+                if (regexec(&fd->regex[0], n, 0, 0, 0) == 0)
                 {
                     change_count ++;
                 }
             }
         }
 
+        int new_commit = 0;
         if (change_count)
         {
-            C(git_treebuilder_create(&tb, 0));
+            printf("change in %s %d\n", dirname, change_count);
+            if (!tb)
+            {
+                C(git_treebuilder_create(&tb, 0));
+            }
 
-            for (i = 0; i < count; i++)
+            for (i = idx; i < count; i++)
             {
                 const git_tree_entry *e = git_tree_entry_byindex(tree, i);
                 const git_oid *t_oid = git_tree_entry_id(e);
                 git_otype type = git_tree_entry_type(e);
                 const git_filemode_t t_fm = git_tree_entry_filemode(e);
-                name = git_tree_entry_name(e);
+                const char *n = git_tree_entry_name(e);
 
                 if (type == GIT_OBJ_TREE)
-                    C(git_treebuilder_insert(0, tb, name, t_oid, t_fm));
+                    C(git_treebuilder_insert(0, tb, n, t_oid, t_fm));
 
                 if (type == GIT_OBJ_BLOB)
                 {
-                    if (regexec(&fd->regex[0], name, 0, 0, 0) != 0)
-                        C(git_treebuilder_insert(0, tb, name, t_oid, t_fm));
+                    if (regexec(&fd->regex[0], n, 0, 0, 0) != 0)
+                        C(git_treebuilder_insert(0, tb, n, t_oid, t_fm));
                 }
             }
 
@@ -706,30 +717,43 @@ start:
             C(git_treebuilder_write(&new_tree_id, repo, tb));
             git_treebuilder_free(tb);
             tb = 0;
+            new_commit = 1;
         }
 
-        /* pop stack */
         if (st.depth == 0)
             break;
 
-        st.depth --;
+        git_tree_free(tree);
+        tree = 0;
 
         s2_e_t *st_ent = &st.stack[st.depth];
+
+        memset(st_ent, 0, sizeof(s2_e_t));
+
+        /* pop stack */
+        st.depth --;
+
+        st_ent = &st.stack[st.depth];
 
         tree = st_ent->tree;
         idx = st_ent->idx;
         count = st_ent->count;
         tb = st_ent->tb;
-        name = st_ent->name;
+        entname = st_ent->entname;
+        dirname = st_ent->dirname;
 
         if (change_count)
-        {
             change_count = st_ent->change_count + 1;
-            if (change_count == 1)
+        else
+            change_count = st_ent->change_count;
+            
+        if (change_count)
+        {
+            /* catch up */
+            if (!tb)
             {
                 C(git_treebuilder_create(&tb, 0));
-                st_ent->tb = tb;
-                for (i = 0; i < idx-1; i++)
+                for (i = 0; i < idx - 1; i++)
                 {
                     const git_tree_entry *e = git_tree_entry_byindex(tree, i);
                     const git_oid *t_oid = git_tree_entry_id(e);
@@ -739,31 +763,21 @@ start:
                     C(git_treebuilder_insert(0, tb, n, t_oid, t_fm));
                 }
             }
-            C(git_treebuilder_insert(0, tb, name,
-                        &new_tree_id, GIT_FILEMODE_TREE));
-        }
-        else
-        {
-            change_count = st_ent->change_count;
-
-            if (change_count)
+            if (new_commit)
             {
-                const git_tree_entry *e = git_tree_entry_byindex(tree, idx-1);
+                printf("new %s\n", entname);
+                C(git_treebuilder_insert(0, tb, entname,
+                            &new_tree_id, GIT_FILEMODE_TREE));
+            }
+            else
+            {
+                const git_tree_entry *e = git_tree_entry_byindex(tree, idx - 1);
                 const git_oid *t_oid = git_tree_entry_id(e);
                 const git_filemode_t t_fm = git_tree_entry_filemode(e);
                 const char *n = git_tree_entry_name(e);
 
-                A(strcmp(name, n) != 0, "not the same");
-
-                C(git_treebuilder_insert(0, tb, name, t_oid, t_fm));
+                C(git_treebuilder_insert(0, tb, n, t_oid, t_fm));
             }
-        }
-
-        if (idx > count)
-        {
-            C(git_treebuilder_write(&new_tree_id, repo, tb));
-            git_treebuilder_free(tb);
-            tb = 0;
         }
     }
 
