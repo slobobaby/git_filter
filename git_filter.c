@@ -613,7 +613,6 @@ typedef struct _s2_e_t
     size_t idx;
     size_t count;
     size_t change_count;
-    const char *dirname;
     const char *entname;
     git_treebuilder *tb;
 } s2_e_t;
@@ -635,7 +634,6 @@ git_tree *tree_walk(git_tree *tree, git_repository *repo,
     size_t idx = 0;
     git_treebuilder *tb = 0;
     const char *entname = 0;
-    const char *dirname = 0;
     size_t change_count = 0;
 
     memset(&st, 0, sizeof(st));
@@ -657,7 +655,6 @@ start:
                 s2_e_t *st_ent = &st.stack[st.depth];
 
                 st_ent->tb = tb;
-                st_ent->dirname = dirname;
                 st_ent->entname = n;
                 st_ent->tree = tree;
                 st_ent->idx = i + 1;
@@ -671,7 +668,6 @@ start:
                 count = git_tree_entrycount(tree);
                 idx = 0;
                 change_count = 0;
-                dirname = n;
 
                 goto start;
             }
@@ -738,7 +734,6 @@ start:
         count = st_ent->count;
         tb = st_ent->tb;
         entname = st_ent->entname;
-        dirname = st_ent->dirname;
 
         if (change_count)
             change_count = st_ent->change_count + 1;
@@ -796,7 +791,7 @@ git_tree *filtered_tree(struct include_dirs *id,
     struct filter_data_t fd;
     int err;
 
-    err = regcomp(&fd.regex[0], "^Makefile$", REG_NOSUB);
+    err = regcomp(&fd.regex[0], "^usim.cpp$", REG_NOSUB);
     if (err < 0)
     {
         die("error compiling regular expression %d\n", err);
