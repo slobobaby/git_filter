@@ -1,4 +1,4 @@
-PROGS = git_filter
+PROGS = git_filter obj
 CFLAGS = -O2 -Wall -Werror
 CFLAGS += -ggdb
 LIBGIT2_DIR = libgit2-0.20.0
