@@ -3,4 +3,4 @@ git_filter
 *.o
 libgit2-*
 tags
-list_test
+obj
