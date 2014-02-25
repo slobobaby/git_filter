@@ -23,6 +23,10 @@
 #include "git_filter.h"
 #include "dict.h"
 
+#if 1
+static git_oid search_oid;
+#endif
+
 #define STACK_CHUNKS 32
 #define INCLUDE_CHUNKS 1024
 #define TAG_INFO_CHUNKS 128
@@ -685,8 +689,13 @@ start:
 
             if (type == GIT_OBJ_BLOB)
             {
+#if 0
                 if (regexec(&fd->regex[0], n, 0, 0, 0) == 0)
+#else
+                if (!git_oid_cmp(&search_oid, t_oid))
+#endif
                 {
+                    printf("remove %s\n", n);
                     change_count ++;
                     if (!tb)
                     {
@@ -779,7 +788,7 @@ start:
         return new_tree;
     }
     else
-        return 0;
+        return tree;
 }
 
 git_tree *filtered_tree(struct include_dirs *id,
@@ -968,22 +977,14 @@ void create_commit(tree_filter_t *tf, git_tree *tree,
     commit_list_t commit_list;
     git_commit *new_commit;
 
-    message = git_commit_message(commit);
-    committer = git_commit_committer(commit);
-    author = git_commit_author(commit);
-
     new_tree = filtered_tree(&tf->id, tree, tf->repo);
-
-    if (!new_tree)
-        return;
 
     if (git_tree_entrycount(new_tree) == 0)
     {
-        git_tree_free(new_tree);
+        if (new_tree != tree)
+            git_tree_free(new_tree);
         return;
     }
-
-    author = git_commit_author(commit);
 
     commit_list_init(&commit_list);
     if (tf->first)
@@ -1004,7 +1005,8 @@ void create_commit(tree_filter_t *tf, git_tree *tree,
         {
             /* cache this commit's parent so we can use it later */
             dict_add(tf->deleted_commits, commit_id, commit_list.list[0]);
-            git_tree_free(new_tree);
+            if (tree != new_tree)
+                git_tree_free(new_tree);
             git_tree_free(old_tree);
             commit_list_free(&commit_list);
             return;
@@ -1040,11 +1042,16 @@ void create_commit(tree_filter_t *tf, git_tree *tree,
         if (commit_list.len == 1)
         {
             dict_add(tf->deleted_merges, commit_id, commit_list.list[0]);
-            git_tree_free(new_tree);
+            if (tree != new_tree)
+                git_tree_free(new_tree);
             commit_list_free(&commit_list);
             return;
         }
     }
+
+    message = git_commit_message(commit);
+    committer = git_commit_committer(commit);
+    author = git_commit_author(commit);
 
     C(git_commit_create(&new_commit_id,
                 tf->repo, NULL,
@@ -1053,7 +1060,8 @@ void create_commit(tree_filter_t *tf, git_tree *tree,
                 message, new_tree,
                 commit_list.len, commit_list.list));
 
-    git_tree_free(new_tree);
+    if (tree != new_tree)
+        git_tree_free(new_tree);
 
     commit_list_free(&commit_list);
 
@@ -1215,6 +1223,10 @@ int main(int argc, char *argv[])
     git_oid last_commit_id;
     char *last_commit_path = 0;
     time_t start;
+
+#if 1
+    C(git_oid_fromstr(&search_oid, "7d38773b790b6d3d95e7956ce7598b6907387c41"));
+#endif
 
     if (argc < 2)
     {
