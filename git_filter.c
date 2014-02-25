@@ -24,7 +24,28 @@
 #include "dict.h"
 
 #if 1
-static git_oid search_oid;
+const char *oid_list[] = {
+"ef8d9f70aec935c5e0c898d92f2b18da7cad8b22",
+"6a7acb578f0db4ede36b60bbae761a5b428b21f5",
+"7d38773b790b6d3d95e7956ce7598b6907387c41",
+"635a336addd811d45ce372037ce55551073e8c6a",
+"d557c99975a624c4be98219a8a1048af6f4c5130",
+"0a2aa5c39eb7064933cb14ad8eb492cbd4fe7fb5",
+"c3c8ef2d99d93ea5dec5557a58df9619dcf6d0e7",
+"0487738c1eac740d55cb898dd0e31affa567714a",
+"c3501f769f3f924d7e27e94dc6a5c3343d77b7d8",
+"bc26b170c8c81c8b26607eea31c61af552b77344",
+"2104814361a95252c905df0dda8ca38036d0b4ba",
+"486378cc1be6b310832d119ef5a39709767c5561",
+"98d6a316ee34763a9b2cb104352b9afc7f543cee",
+"ae8b2dbb9dcdf27b41f5b05db7b4c48b24a06043",
+"3b7cd63936d0420a367218f7d927f492ea09beb3",
+"8f74aa2a1571adab33b007981b145713a1d70e71"
+};
+
+#define LIST_LEN (sizeof(oid_list)/sizeof(oid_list[0]))
+
+static git_oid search_oid[LIST_LEN];
 #endif
 
 #define STACK_CHUNKS 32
@@ -692,8 +713,20 @@ start:
 #if 0
                 if (regexec(&fd->regex[0], n, 0, 0, 0) == 0)
 #else
-                if (!git_oid_cmp(&search_oid, t_oid))
+                int x,m;
+
+                m = 0;
+
+                for (x = 0; x < LIST_LEN; x++)
+                {
+                    if (!git_oid_cmp(&search_oid[x], t_oid))
+                    {
+                        m = 1;
+                        break;
+                    }
+                }
 #endif
+                if (m)
                 {
                     printf("remove %s\n", n);
                     change_count ++;
@@ -1225,7 +1258,10 @@ int main(int argc, char *argv[])
     time_t start;
 
 #if 1
-    C(git_oid_fromstr(&search_oid, "7d38773b790b6d3d95e7956ce7598b6907387c41"));
+    for (i=0; i<LIST_LEN; i++)
+    {
+        C(git_oid_fromstr(&search_oid[i], oid_list[i]));
+    }
 #endif
 
     if (argc < 2)
