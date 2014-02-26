@@ -27,7 +27,7 @@ $(LIBGIT2_DIR)/.patched: $(LIBGIT2_DIR)/.unpacked
 	touch $@
 
 $(LIBGIT2_DIR)/.built: $(LIBGIT2_DIR)/.patched
-	make -C libgit2-0.20.0 -f Makefile.embed
+	make -C libgit2-0.20.0 -f Makefile.embed EXTRA_DEFINES=-DGIT_THREADS=1
 	touch $@
 
 git_filter.o: $(LIBGIT2_DIR)/.built

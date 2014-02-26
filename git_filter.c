@@ -8,11 +8,17 @@
 
 #define DEBUG 0
 #define MALLOC_STATS 1
+#define THREAD_SUPPORT 1
 
 #include <stdio.h>
 #include <string.h>
 #include <stdarg.h>
 #include <time.h>
+#if THREAD_SUPPORT
+#include <pthread.h>
+#include <semaphore.h>
+#endif
+#include <errno.h>
 #if MALLOC_STATS
 #include <malloc.h>
 #endif
@@ -89,6 +95,12 @@ typedef struct _commit_list_t
     unsigned int alloc;
 } commit_list_t;
 
+typedef struct _ci_t {
+    git_commit *commit;
+    git_tree *tree_in;
+    git_tree **tree_out;
+} ci_t;
+
 static char *git_repo_name = 0;
 static char *git_repo_suffix = "";
 static char *git_tag_prefix = 0;
@@ -99,6 +111,75 @@ static char continue_run = 0;
 static unsigned int tf_len = 0;
 static tree_filter_t *tf_list;
 static unsigned int tf_list_alloc = 0;
+
+static ci_t *tree_list;
+
+char *local_sprintf(const char *format, ...);
+git_tree *filtered_tree(include_dirs_t *id,
+        git_tree *tree, git_repository *repo);
+
+#if THREAD_SUPPORT
+typedef struct _worker_t
+{
+    char *name;
+    pthread_t th;
+    sem_t work_sem;
+    sem_t *done_sem;
+    git_repository *repo;
+    unsigned char done;
+    size_t start;
+    size_t count;
+} worker_t;
+
+#define N_WORKERS 4
+static worker_t worker_list[N_WORKERS];
+
+#define E(call) do { \
+    int err = call; \
+    if (err < 0) \
+        log("error in %s: %s(%d)", #call, strerror(errno), errno); \
+} while(0)
+
+void *worker(void *arg)
+{
+    worker_t *w = (worker_t *)arg;
+
+    for (;;)
+    {
+        size_t i, j;
+
+        E(sem_wait(&w->work_sem));
+
+        for (j = w->start; j < w->start + w->count; j++)
+        {
+            ci_t *c = &tree_list[j];
+
+            for (i = 0; i < tf_len; i++)
+            {
+                c->tree_out[i] = filtered_tree(&tf_list[i].id,
+                        c->tree_in, w->repo);
+            }
+        }
+
+        w->done = 1;
+
+        sem_post(w->done_sem);
+    }
+
+    return 0;
+}
+
+static void worker_init(int id, worker_t *w, sem_t *done_sem,
+        git_repository *repo)
+{
+    w->name = local_sprintf("worker%d", id);
+    E(sem_init(&w->work_sem, 0, 0));
+    E(pthread_create(&w->th, 0, worker, w));
+    w->done = 1;
+    w->done_sem = done_sem;
+    w->repo = repo;
+}
+#endif
 
 static void tf_list_new(const char *name, const char *file)
 {
@@ -991,6 +1072,42 @@ void display_progress(char *s, unsigned int count,
     last = now;
 }
 
+void do_work(sem_t *done_sem, size_t start, size_t count)
+{
+    size_t i;
+
+    log("\nwait\n");
+
+    E(sem_wait(done_sem));
+
+    log("\nwake %zd %zd\n", start, count);
+
+    for (i=0;i<N_WORKERS;i++)
+    {
+        worker_t *w = &worker_list[i];
+        if (w->done)
+        {
+            w->done = 0;
+            w->start = start;
+            w->count = count;
+            E(sem_post(&w->work_sem));
+            return;
+        }
+    }
+
+    A(1, "could not find worker");
+}
+
+void do_work_complete(sem_t *done_sem)
+{
+    size_t i;
+
+    for (i=0;i<N_WORKERS;i++)
+    {
+        E(sem_wait(done_sem));
+    }
+}
+
 
 int main(int argc, char *argv[])
 {
@@ -1003,6 +1120,8 @@ int main(int argc, char *argv[])
     git_oid last_commit_id;
     char *last_commit_path = 0;
     time_t start;
+
+    C(git_threads_init());
 
     if (argc < 2)
     {
@@ -1054,40 +1173,54 @@ int main(int argc, char *argv[])
         exit(0);
     }
 
+#if THREAD_SUPPORT
+    sem_t done_sem;
+    E(sem_init(&done_sem, 0, N_WORKERS));
+
+    for (i=0;i<N_WORKERS;i++)
+    {
+        worker_init(i, &worker_list[i], &done_sem, repo);
+    }
+#endif
+
     revwalk_init(walker, &last_commit_id);
 
 #if 1
     count = 0;
     start = time(0);
 
-    typedef struct _ci_t {
-        git_commit *commit;
-        git_tree *tree_in;
-        git_tree *tree_out[tf_len];
-    } ci_t;
-
-    ci_t *tree_list = malloc(commit_count * sizeof(ci_t));
+    tree_list = malloc(commit_count * sizeof(ci_t));
     A(tree_list == 0, "no memory");
 
     start = time(0);
     size_t idx = 0;
+    size_t last_work = 0;
     while (!git_revwalk_next(&commit_oid, walker)) {
         ci_t *c = &tree_list[idx];
 
         C(git_commit_lookup(&c->commit, repo, &commit_oid));
         C(git_commit_tree(&c->tree_in, c->commit));
 
-        for (i = 0; i < tf_len; i++)
+        c->tree_out = malloc(tf_len * sizeof(git_tree *));
+        A(c->tree_out == 0, "no memory");
+
+
+#define WORK_UNIT 1024
+        size_t work = idx - last_work;
+        if (work >= WORK_UNIT)
         {
-            c->tree_out[i] = filtered_tree(&tf_list[i].id, c->tree_in, repo);
+            do_work(&done_sem, last_work, work);
+            last_work = idx;
+            display_progress("Processing pass1", last_work, commit_count, start, 0);
         }
-
-        display_progress("Processing pass1", idx, commit_count, start, 0);
-
         idx ++;
     }
 
-    display_progress("Processing pass1", idx, commit_count, start, 0);
+    do_work(&done_sem, last_work, idx-last_work);
+
+    do_work_complete(&done_sem);
+
+    display_progress("Processing pass1", commit_count, commit_count, start, 0);
 
     printf("\n");
 
@@ -1154,6 +1287,8 @@ int main(int argc, char *argv[])
 
     git_revwalk_free(walker);
     git_repository_free(repo);
+
+    git_threads_shutdown();
 
 #if MALLOC_STATS
     malloc_stats();
