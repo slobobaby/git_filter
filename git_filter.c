@@ -7,7 +7,7 @@
  */
 
 #define DEBUG 0
-#define MALLOC_STATS 0
+#define MALLOC_STATS 1
 
 #include <stdio.h>
 #include <string.h>
@@ -749,26 +749,21 @@ int parent_of(git_repository *repo, const git_oid *aid, const git_oid *oid)
 }
 
 
-void create_commit(tree_filter_t *tf, git_tree *tree,
-        git_commit *commit, const git_oid *commit_id)
+void create_commit(tree_filter_t *tf,
+        git_tree *new_tree, git_commit *commit)
 {
-    git_tree *new_tree;
     git_oid new_commit_id;
     const char *message;
     const git_signature *committer;
     const git_signature *author;
+    const git_oid *commit_id;
     commit_list_t commit_list;
     git_commit *new_commit;
 
-    message = git_commit_message(commit);
-    committer = git_commit_committer(commit);
-    author = git_commit_author(commit);
-
-    new_tree = filtered_tree(&tf->id, tree, tf->repo);
+    commit_id = git_commit_id(commit);
 
     if (git_tree_entrycount(new_tree) == 0)
     {
-        git_tree_free(new_tree);
         return;
     }
 
@@ -793,7 +788,6 @@ void create_commit(tree_filter_t *tf, git_tree *tree,
         {
             /* cache this commit's parent so we can use it later */
             dict_add(tf->deleted_commits, commit_id, commit_list.list[0]);
-            git_tree_free(new_tree);
             git_tree_free(old_tree);
             commit_list_free(&commit_list);
             return;
@@ -829,11 +823,14 @@ void create_commit(tree_filter_t *tf, git_tree *tree,
         if (commit_list.len == 1)
         {
             dict_add(tf->deleted_merges, commit_id, commit_list.list[0]);
-            git_tree_free(new_tree);
             commit_list_free(&commit_list);
             return;
         }
     }
+
+    message = git_commit_message(commit);
+    committer = git_commit_committer(commit);
+    author = git_commit_author(commit);
 
     C(git_commit_create(&new_commit_id,
                 tf->repo, NULL,
@@ -842,7 +839,6 @@ void create_commit(tree_filter_t *tf, git_tree *tree,
                 message, new_tree,
                 commit_list.len, commit_list.list));
 
-    git_tree_free(new_tree);
 
     commit_list_free(&commit_list);
 
@@ -983,7 +979,10 @@ void display_progress(char *s, unsigned int count,
 
     percent = count * 100 / total;
     time_taken = now - start;
-    time_remaining = time_taken * (total - count)/ count;
+    if (count == 0)
+        time_remaining = 0;
+    else
+        time_remaining = time_taken * (total - count)/ count;
 
     printf("%s: %d%% (%d/%d) time %ds(%ds)    \r",
             s, percent, count, total, time_taken, time_remaining);
@@ -1057,24 +1056,65 @@ int main(int argc, char *argv[])
 
     revwalk_init(walker, &last_commit_id);
 
+#if 1
     count = 0;
     start = time(0);
 
-    while (!git_revwalk_next(&commit_oid, walker)) {
-        git_tree *tree;
+    typedef struct _ci_t {
         git_commit *commit;
+        git_tree *tree_in;
+        git_tree *tree_out[tf_len];
+    } ci_t;
 
-        C(git_commit_lookup(&commit, repo, &commit_oid));
-        C(git_commit_tree(&tree, commit));
+    ci_t *tree_list = malloc(commit_count * sizeof(ci_t));
+    A(tree_list == 0, "no memory");
+
+    start = time(0);
+    size_t idx = 0;
+    while (!git_revwalk_next(&commit_oid, walker)) {
+        ci_t *c = &tree_list[idx];
+
+        C(git_commit_lookup(&c->commit, repo, &commit_oid));
+        C(git_commit_tree(&c->tree_in, c->commit));
 
         for (i = 0; i < tf_len; i++)
-            create_commit(&tf_list[i], tree, commit, &commit_oid);
+        {
+            c->tree_out[i] = filtered_tree(&tf_list[i].id, c->tree_in, repo);
+        }
+
+        display_progress("Processing pass1", idx, commit_count, start, 0);
+
+        idx ++;
+    }
+
+    display_progress("Processing pass1", idx, commit_count, start, 0);
+
+    printf("\n");
+
+#if MALLOC_STATS
+    malloc_stats();
+#endif
+
+#endif
+
+    count = 0;
+    start = time(0);
+
+    for (idx = 0; idx < commit_count; idx ++) {
+        ci_t *c = &tree_list[idx];
+
+        for (i = 0; i < tf_len; i++)
+        {
+            create_commit(&tf_list[i], c->tree_out[i], c->commit);
+        }
 
         count ++;
         display_progress("Processing commits", count, commit_count, start, 0);
 
-        git_commit_free(commit);
-        git_tree_free(tree);
+        git_commit_free(c->commit);
+        c->commit = 0;
+        git_tree_free(c->tree_in);
+        c->tree_in = 0;
     }
 
     display_progress("Processing commits", count, commit_count, start, 1);
