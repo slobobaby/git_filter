@@ -68,7 +68,7 @@ static char *git_repo_suffix = "";
 static char *git_tag_prefix = 0;
 static char *rev_type = 0;
 static char *rev_string = 0;
-
+static char continue_run = 0;
 
 static unsigned int tf_len = 0;
 static struct tree_filter *tf_list;
@@ -90,8 +90,6 @@ static void tf_list_new(const char *name, const char *file)
 
     tf_len ++;
 }
-
-static char continue_run = 0;
 
 #define BUFLEN 128
 char *local_sprintf(const char *format, ...)
@@ -118,6 +116,12 @@ char *local_sprintf(const char *format, ...)
     }
 
     return out;
+}
+
+static char *savefile(const char *name, const char *suffix)
+{
+    return local_sprintf("%s/%s%s%s%s",
+            git_repo_name, git_repo_suffix, git_tag_prefix, name, suffix);
 }
 
 char *local_fgets(FILE *f)
@@ -171,8 +175,7 @@ void rev_info_dump(struct tree_filter *tf)
 {
     FILE *f;
     rev_info_dump_t ri;
-    char *full_path = local_sprintf("%s%s%s%s.revinfo",
-            git_repo_name, git_repo_suffix, git_tag_prefix, tf->name);
+    char *full_path = savefile(tf->name, ".revinfo");
 
     f = fopen(full_path, "w");
     if (!f)
@@ -350,8 +353,7 @@ void tree_filter_init(struct tree_filter *tf, git_repository *repo)
 
     if (continue_run)
     {
-        char *full_path = local_sprintf("%s%s%s%s.revinfo",
-                git_repo_name, git_repo_suffix, git_tag_prefix, tf->name);
+        char *full_path = savefile(tf->name, ".revinfo");
         count = read_revinfo(tf->revdict, tf->deleted_merges, repo, full_path);
         free(full_path);
     }
@@ -989,11 +991,10 @@ int main(int argc, char *argv[])
     C(git_repository_open(&repo, git_repo_name));
     if (!git_repository_is_bare(repo))
     {
-        git_repo_suffix = "/.git/";
+        git_repo_suffix = ".git/";
     }
 
-    last_commit_path = local_sprintf("%s%s%slast_commit",
-            git_repo_name, git_repo_suffix, git_tag_prefix);
+    last_commit_path = savefile("last_commit", "");
 
     if (argc > 2)
     {
