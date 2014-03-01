@@ -7,9 +7,7 @@ dry_run = False
 fast = True
 
 # need to be able to filter soon
-def gettags(repo, is_bare):
-    if not is_bare:
-        repo += "/.git"
+def gettags(repo):
     cmd = "git --git-dir=%s show-ref --tags" % repo
     raw_tags = subprocess.check_output(cmd.split()).splitlines()
 
@@ -42,7 +40,7 @@ def getmaps(mapfile, filt = None):
         if fmap.has_key(old):
             raise Exception("duplicate commit %s" % old)
         if rmap.has_key(new):
-            log("duplicate (%s, %s) -> %s" % (old, rmap[new], new))
+            log("WARNING: duplicate (%s, %s) -> %s" % (old, rmap[new], new))
         fmap[old] = new
         rmap[new] = old
 
@@ -75,14 +73,25 @@ def parse_config(configfile):
 def log(msg):
     sys.stderr.write(msg + "\n")
 
+def find_repo(repo_root):
+    gsdir = repo_root + "/.git"
+    if os.path.isdir(gsdir):
+        return gsdir
+    else:
+        return repo_root
+
+if len(sys.argv) < 2:
+    sys.stderr.write("syntax: %s <repo>\n" % sys.argv[0])
+    sys.exit(1)
+
 cfg = parse_config(sys.argv[1])
 
-cmd = "git --git-dir=%s/.git rev-list --first-parent %s" % (cfg["REPO"], cfg["REVN"][1])
+repo = find_repo(cfg["REPO"])
+
+cmd = "git --git-dir=%s rev-list --first-parent %s" % (repo, cfg["REVN"][1])
 revs = subprocess.check_output(cmd.split()).splitlines()
 
-tags = gettags(cfg["REPO"], False)
-
-repo_dir = cfg["REPO"] + "/.git"
+tags = gettags(repo)
 
 packed_refs_comment = "# added by newtags"
 
@@ -116,7 +125,7 @@ for name in cfg["FILT"]:
             log("Tagging already done in %s\n" % tname)
             continue
 
-    map = getmaps("%s/%s.revinfo" % (repo_dir, tname))
+    map = getmaps("%s/%s.revinfo" % (repo, tname))
 
     log("MAPS done")
 
