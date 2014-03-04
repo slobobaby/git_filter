@@ -566,6 +566,7 @@ int stack_close(dirstack_t *stack, git_oid *new_oid)
     return 0;
 }
 
+#if 0
 git_tree *filtered_tree(include_dirs_t *id,
         git_tree *tree, git_repository *repo)
 {
@@ -597,6 +598,26 @@ git_tree *filtered_tree(include_dirs_t *id,
 
     return new_tree;
 }
+#else
+git_tree *filtered_tree(include_dirs_t *id,
+        git_tree *tree, git_repository *repo)
+{
+    git_tree *new_tree;
+    git_treebuilder *tb;
+    git_oid new_oid;
+
+    C(git_treebuilder_create(&tb, 0));
+
+    C(git_treebuilder_insert(0, tb, id->dirs[0],
+                git_tree_id(tree), GIT_FILEMODE_TREE));
+
+    C(git_treebuilder_write(&new_oid, repo, tb));
+
+    C(git_tree_lookup(&new_tree, repo, &new_oid));
+
+    return new_tree;
+}
+#endif
 
 void commit_list_init(commit_list_t *cl)
 {
