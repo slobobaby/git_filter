@@ -95,10 +95,12 @@ static char *git_tag_prefix = 0;
 static char *rev_type = 0;
 static char *rev_string = 0;
 static char continue_run = 0;
+static char flatten = 1;
 
 static unsigned int tf_len = 0;
 static tree_filter_t *tf_list;
 static unsigned int tf_list_alloc = 0;
+
 
 static void tf_list_new(const char *name, const char *file)
 {
@@ -586,7 +588,23 @@ git_tree *filtered_tree(include_dirs_t *id,
 
         if (error == 0)
         {
-            stack_add(&stack, path, out);
+            if (flatten)
+            {
+                char **path_sp;
+                char *tmppath = strdup(path);
+
+                unsigned int cnt = split_path(&path_sp, tmppath);
+
+                stack_add(&stack, path_sp[cnt-1], out);
+
+                free(tmppath);
+                free(path_sp);
+            }
+            else
+            {
+                stack_add(&stack, path, out);
+            }
+
             git_tree_entry_free(out);
         }
     }
