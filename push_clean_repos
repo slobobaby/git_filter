@@ -33,9 +33,10 @@ fi
 git --git-dir=$REPO_GIT repack -ad
 
 for name in $NAMES; do
-    newrepo=$TPFX$name
+    newbranch=$TPFX$name
+    newrepo=${newbranch}.git
     if [ "set${2}" = "setinit" ]; then
         git --git-dir=$newrepo init
     fi
-    git --git-dir=$REPO_GIT push $newrepo $newrepo:master
+    git --git-dir=$REPO_GIT push $newrepo $newbranch:master
 done
