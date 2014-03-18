@@ -105,7 +105,7 @@ for name in cfg["FILT"]:
 
     if fast:
         try:
-            prefs_file = tname + "/packed-refs"
+            prefs_file = tname + ".git/packed-refs"
 
             if not dry_run:
                 if os.path.exists(prefs_file):
