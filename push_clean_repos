@@ -8,12 +8,16 @@
 
 syntax()
 {
-    echo "syntax: $0 CONFIGFILE [init]"
+    echo "syntax: $0 CONFIGFILE [<output prefix>]"
     exit 1
 }
 
 if [ "set${1}" = "set" ]; then
     syntax
+fi
+
+if [ "set${2}" != "set" ]; then
+    OUTPUT_PREFIX=${2}
 fi
 
 CONFIG_FILE=$1
@@ -34,9 +38,8 @@ git --git-dir=$REPO_GIT repack -ad
 
 for name in $NAMES; do
     newbranch=$TPFX$name
-    newrepo=${newbranch}.git
-    if [ "set${2}" = "setinit" ]; then
-        git --git-dir=$newrepo init
-    fi
+    newrepo=${OUTPUT_PREFIX}${newbranch}.git
+    # create the git repository if it does not exist
+    git --git-dir=$newrepo init
     git --git-dir=$REPO_GIT push $newrepo $newbranch:master
 done
