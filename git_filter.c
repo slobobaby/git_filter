@@ -59,6 +59,7 @@ struct tree_filter {
     dict_t *revdict;
 
     dict_t *deleted_merges;
+    dict_t *deleted_commits;
 
     char first;
 };
@@ -186,6 +187,8 @@ void rev_info_dump(struct tree_filter *tf)
     dict_dump(tf->revdict, _rev_info_dump, &ri);
     ri.prefix = "m:";
     dict_dump(tf->deleted_merges, _rev_info_dump, &ri);
+    ri.prefix = "d:";
+    dict_dump(tf->deleted_commits, _rev_info_dump, &ri);
 
     fclose(f);
 
@@ -283,7 +286,7 @@ static void read_last_commit(git_oid *commit_id, const char *filename)
 
 
 static unsigned int read_revinfo(
-        dict_t *revdict, dict_t *deleted_merges,
+        dict_t *revdict, dict_t *deleted_merges, dict_t *deleted_commits,
         git_repository *repo, const char *filename)
 {
     unsigned int lineno = 0;
@@ -328,6 +331,9 @@ static unsigned int read_revinfo(
             case 'm':
                 dict_add(deleted_merges, &oida, commit);
                 break;
+            case 'd':
+                dict_add(deleted_commits, &oida, commit);
+                break;
             default:
                 die("illegal entry at line %d of %s", lineno, filename);
         }
@@ -351,10 +357,13 @@ void tree_filter_init(struct tree_filter *tf, git_repository *repo)
 
     tf->deleted_merges = dict_init();
 
+    tf->deleted_commits = dict_init();
+
     if (continue_run)
     {
         char *full_path = savefile(tf->name, ".revinfo");
-        count = read_revinfo(tf->revdict, tf->deleted_merges, repo, full_path);
+        count = read_revinfo(tf->revdict, tf->deleted_merges,
+                       tf->deleted_commits, repo, full_path);
         free(full_path);
     }
 
@@ -623,7 +632,8 @@ void commit_list_free(commit_list_t *cl)
 /* find the parents of the original commit and
    map them to new commits */
 void find_new_parents(git_commit *old, dict_t *oid_dict, 
-        dict_t *deleted_merges, commit_list_t *commit_list)
+        dict_t *deleted_merges, dict_t *deleted_commits,
+               commit_list_t *commit_list)
 {
     int cpcount;
 
@@ -650,8 +660,14 @@ void find_new_parents(git_commit *old, dict_t *oid_dict,
                 if (newc != 0)
                     commit_list_add(commit_list, newc);
                 else
-                    find_new_parents(old_parent, oid_dict, 
-                            deleted_merges, commit_list);
+                {
+                    newc = dict_lookup(deleted_commits, old_pid);
+                    if (newc != 0)
+                            commit_list_add(commit_list, newc);
+                    else
+                            find_new_parents(old_parent, oid_dict, deleted_merges,
+                                               deleted_commits, commit_list);
+                }
             }
             else
                 commit_list_add(commit_list, newc);
@@ -755,7 +771,8 @@ void create_commit(struct tree_filter *tf, git_tree *tree,
     if (tf->first)
         tf->first = 0;
     else
-        find_new_parents(commit, tf->revdict, tf->deleted_merges, &commit_list);
+        find_new_parents(commit, tf->revdict, tf->deleted_merges,
+                        tf->deleted_commits, &commit_list);
 
     /* skip commits which have identical trees but only
        in the simple case of one parent */
@@ -767,6 +784,8 @@ void create_commit(struct tree_filter *tf, git_tree *tree,
 
         if (tree_equal(old_tree, new_tree))
         {
+            /* cache this commit's parent so we can use it later */
+            dict_add(tf->deleted_commits, commit_id, commit_list.list[0]);
             git_tree_free(new_tree);
             git_tree_free(old_tree);
             commit_list_free(&commit_list);
