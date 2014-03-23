@@ -62,7 +62,7 @@ int odb_cb(const git_oid *id, void *payload)
         git_off_t bsize = git_blob_rawsize((git_blob *)o);
         if (bsize > data->size)
         {
-            printf("size %lld oid %s\n",
+            printf("size %ld oid %s\n",
                     bsize, git_oid_tostr(oids1, GIT_OID_HEXSZ+1, id));
         }
 
@@ -101,7 +101,7 @@ int main(int argc, char *argv[])
     cb_data.repo = repo;
     cb_data.count = 0;
     cb_data.blob_count = 0;
-    cb_data.size = 5000000;
+    cb_data.size = 500000;
 
     C(git_odb_foreach(odb, odb_cb, &cb_data));
 
