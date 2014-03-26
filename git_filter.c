@@ -1437,7 +1437,7 @@ start:
         return tree;
 }
 
-git_tree *filtered_tree(struct include_dirs *id,
+git_tree *filtered_tree(include_dirs_t *id,
         git_tree *tree, git_repository *repo)
 {
     git_tree *new_tree;
