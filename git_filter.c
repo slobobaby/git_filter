@@ -42,16 +42,16 @@
 #define tree_equal(tree1, tree2) git_oid_equal(git_tree_id(tree1), \
             git_tree_id(tree2))
 
-struct include_dirs {
+typedef struct _include_dirs {
     char **dirs;
     unsigned int alloc;
     unsigned int len;
-};
+} include_dirs_t;
 
-struct tree_filter {
+typedef struct _tree_filter {
     const char *name;;
     const char *include_file;
-    struct include_dirs id;
+    include_dirs_t id;
 
     git_oid last;
 
@@ -62,7 +62,32 @@ struct tree_filter {
     dict_t *deleted_commits;
 
     char first;
-};
+} tree_filter_t;
+
+typedef struct _rev_info_dump_t
+{
+    FILE *f;
+    const char *prefix;
+} rev_info_dump_t;
+
+typedef struct _dirstack_item_t {
+    git_treebuilder *tb;
+    char *name;
+} dirstack_item_t;
+
+typedef struct _dirstack_t {
+    dirstack_item_t *item;
+    unsigned int alloc;
+    unsigned int depth;
+    git_repository *repo;
+} dirstack_t;
+
+typedef struct _commit_list_t
+{
+    const git_commit **list;
+    unsigned int len;
+    unsigned int alloc;
+} commit_list_t;
 
 static char *git_repo_name = 0;
 static char *git_repo_suffix = "";
@@ -72,7 +97,7 @@ static char *rev_string = 0;
 static char continue_run = 0;
 
 static unsigned int tf_len = 0;
-static struct tree_filter *tf_list;
+static tree_filter_t *tf_list;
 static unsigned int tf_list_alloc = 0;
 
 static void tf_list_new(const char *name, const char *file)
@@ -81,9 +106,9 @@ static void tf_list_new(const char *name, const char *file)
     {
         tf_list_alloc += TF_LIST_CHUNKS;
         tf_list = realloc(tf_list, tf_list_alloc *
-                sizeof(struct tree_filter));
+                sizeof(tree_filter_t));
         memset(&tf_list[tf_list_alloc - TF_LIST_CHUNKS], 0,
-                TF_LIST_CHUNKS * sizeof(struct tree_filter));
+                TF_LIST_CHUNKS * sizeof(tree_filter_t));
     }
 
     tf_list[tf_len].name = name;
@@ -152,12 +177,6 @@ char *local_fgets(FILE *f)
     return line;
 }
 
-typedef struct _rev_info_dump_t
-{
-    FILE *f;
-    const char *prefix;
-} rev_info_dump_t;
-
 void _rev_info_dump(void *d, const git_oid *k, const void *v)
 {
     rev_info_dump_t *ri = (rev_info_dump_t *)d;
@@ -172,7 +191,7 @@ void _rev_info_dump(void *d, const git_oid *k, const void *v)
            );
 }
 
-void rev_info_dump(struct tree_filter *tf)
+void rev_info_dump(tree_filter_t *tf)
 {
     FILE *f;
     rev_info_dump_t ri;
@@ -204,7 +223,7 @@ int sort_string(const void *a, const void *b)
     return strcmp(*stra, *strb);
 }
 
-void include_dirs_init(struct include_dirs *id, const char *file)
+void include_dirs_init(include_dirs_t *id, const char *file)
 {
     FILE *f;
     int i;
@@ -346,7 +365,7 @@ static unsigned int read_revinfo(
     return lineno;
 }
 
-void tree_filter_init(struct tree_filter *tf, git_repository *repo)
+void tree_filter_init(tree_filter_t *tf, git_repository *repo)
 {
     int count = 0;
     include_dirs_init(&tf->id, tf->include_file);
@@ -371,21 +390,9 @@ void tree_filter_init(struct tree_filter *tf, git_repository *repo)
         tf->first = 1;
 }
 
-void tree_filter_fini(struct tree_filter *tf)
+void tree_filter_fini(tree_filter_t *tf)
 {
 }
-
-typedef struct _dirstack_item_t {
-    git_treebuilder *tb;
-    char *name;
-} dirstack_item_t;
-
-typedef struct _dirstack_t {
-    dirstack_item_t *item;
-    unsigned int alloc;
-    unsigned int depth;
-    git_repository *repo;
-} dirstack_t;
 
 dirstack_item_t *stack_get_item(dirstack_t *stack, int level)
 {
@@ -559,7 +566,7 @@ int stack_close(dirstack_t *stack, git_oid *new_oid)
     return 0;
 }
 
-git_tree *filtered_tree(struct include_dirs *id,
+git_tree *filtered_tree(include_dirs_t *id,
         git_tree *tree, git_repository *repo)
 {
     git_tree *new_tree;
@@ -590,13 +597,6 @@ git_tree *filtered_tree(struct include_dirs *id,
 
     return new_tree;
 }
-
-typedef struct _commit_list_t
-{
-    const git_commit **list;
-    unsigned int len;
-    unsigned int alloc;
-} commit_list_t;
 
 void commit_list_init(commit_list_t *cl)
 {
@@ -742,7 +742,7 @@ int parent_of(git_repository *repo, const git_oid *aid, const git_oid *oid)
 }
 
 
-void create_commit(struct tree_filter *tf, git_tree *tree,
+void create_commit(tree_filter_t *tf, git_tree *tree,
         git_commit *commit, const git_oid *commit_id)
 {
     git_tree *new_tree;
@@ -1083,7 +1083,7 @@ int main(int argc, char *argv[])
     {
         char oids[GIT_OID_HEXSZ+1];
         char *tag;
-        struct tree_filter *tf = &tf_list[i];
+        tree_filter_t *tf = &tf_list[i];
 
         if (!git_oid_iszero(&tf->last))
         {
