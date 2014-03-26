@@ -62,7 +62,7 @@ int odb_cb(const git_oid *id, void *payload)
         git_off_t bsize = git_blob_rawsize((git_blob *)o);
         if (bsize > data->size)
         {
-            printf("size %zd oid %s\n",
+            printf("size %lld oid %s\n",
                     bsize, git_oid_tostr(oids1, GIT_OID_HEXSZ+1, id));
         }
 
