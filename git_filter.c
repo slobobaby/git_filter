@@ -629,6 +629,21 @@ void commit_list_free(commit_list_t *cl)
     cl->list = 0;
 }
 
+/* helper function to find object id in one of the dictionaries */
+static const git_commit *dict_lookup_all(const git_oid *id,
+        dict_t *oid_dict, dict_t *deleted_merges, dict_t *deleted_commits)
+{
+    const git_commit *newc = dict_lookup(oid_dict, id);
+    if (newc != 0)
+        return newc;
+    newc = dict_lookup(deleted_merges, id);
+    if (newc != 0)
+        return newc;
+    newc = dict_lookup(deleted_commits, id);
+    return newc;
+}
+
+
 /* find the parents of the original commit and
    map them to new commits */
 void find_new_parents(git_commit *old, dict_t *oid_dict, 
@@ -650,25 +665,17 @@ void find_new_parents(git_commit *old, dict_t *oid_dict,
         {
             git_commit *old_parent;
             const git_oid *old_pid;
+            const git_commit *newc;
 
             C(git_commit_parent(&old_parent, old, n));
             old_pid = git_commit_id(old_parent);
 
-            const git_commit *newc = dict_lookup(oid_dict, old_pid);
-            if (newc == 0) {
-                newc = dict_lookup(deleted_merges, old_pid);
-                if (newc != 0)
-                    commit_list_add(commit_list, newc);
-                else
-                {
-                    newc = dict_lookup(deleted_commits, old_pid);
-                    if (newc != 0)
-                            commit_list_add(commit_list, newc);
-                    else
-                            find_new_parents(old_parent, oid_dict, deleted_merges,
-                                               deleted_commits, commit_list);
-                }
-            }
+            newc = dict_lookup_all(old_pid, oid_dict,
+                    deleted_merges, deleted_commits);
+            if (newc == 0)
+                find_new_parents(old_parent, oid_dict,
+                        deleted_merges, deleted_commits,
+                        commit_list);
             else
                 commit_list_add(commit_list, newc);
 
