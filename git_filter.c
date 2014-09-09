@@ -183,11 +183,17 @@ void _rev_info_dump(void *d, const git_oid *k, const void *v)
     char oids1[GIT_OID_HEXSZ+1];
     char oids2[GIT_OID_HEXSZ+1];
     const git_oid *o = (const git_oid *)k;
-    const git_oid *cid = git_commit_id((const git_commit *)v);
+    char *parent;
+
+    if (v == (const void *)-1)
+        parent = GIT_OID_HEX_ZERO;
+    else
+        parent = git_oid_tostr(oids2, GIT_OID_HEXSZ+1,
+                    git_commit_id((const git_commit *)v));
 
     fprintf(ri->f, "%s%s %s\n", ri->prefix,
             git_oid_tostr(oids1, GIT_OID_HEXSZ+1, o),
-            git_oid_tostr(oids2, GIT_OID_HEXSZ+1, cid)
+            parent
            );
 }
 
@@ -340,7 +346,10 @@ static unsigned int read_revinfo(
         if (git_oid_fromstr(&coid, v) != 0)
             die("could not parse line %d of %s", lineno, filename);
 
-        C(git_commit_lookup(&commit, repo, &coid));
+        if (git_oid_iszero(&coid))
+            commit = (git_commit *)-1;
+        else
+            C(git_commit_lookup(&commit, repo, &coid));
 
         switch (e[0])
         {
@@ -672,7 +681,11 @@ void find_new_parents(git_commit *old, dict_t *oid_dict,
 
             newc = dict_lookup_all(old_pid, oid_dict,
                     deleted_merges, deleted_commits);
-            if (newc == 0)
+            if (newc == ((git_commit *)-1))
+            {
+                /* do nothing */
+            }
+            else if (newc == 0)
                 find_new_parents(old_parent, oid_dict,
                         deleted_merges, deleted_commits,
                         commit_list);
@@ -768,6 +781,7 @@ void create_commit(tree_filter_t *tf, git_tree *tree,
 
     if (git_tree_entrycount(new_tree) == 0)
     {
+        dict_add(tf->deleted_commits, commit_id, (git_commit *)-1);
         git_tree_free(new_tree);
         return;
     }
