@@ -524,7 +524,7 @@ unsigned int split_path(char ***path_sp, char *path)
     return cnt;
 }
 
-void stack_add(dirstack_t *stack, const char *path, 
+void stack_add(dirstack_t *stack, const char *path,
         const git_tree_entry *ent)
 {
     const char *name = git_tree_entry_name(ent);
@@ -646,7 +646,7 @@ static const git_commit *dict_lookup_all(const git_oid *id,
 
 /* find the parents of the original commit and
    map them to new commits */
-void find_new_parents(git_commit *old, dict_t *oid_dict, 
+void find_new_parents(git_commit *old, dict_t *oid_dict,
         dict_t *deleted_merges, dict_t *deleted_commits,
                commit_list_t *commit_list)
 {
@@ -824,7 +824,7 @@ void create_commit(tree_filter_t *tf, git_tree *tree,
             }
         }
         commit_list.len -= simplified;
-        /* this is a merge commit that has collapsed to nothing cache this 
+        /* this is a merge commit that has collapsed to nothing cache this
            information */
         if (commit_list.len == 1)
         {
@@ -1025,7 +1025,7 @@ int main(int argc, char *argv[])
     if (argc > 2)
     {
         if(!strcmp(argv[2], "continue"))
-        {    
+        {
             printf("Continuing from previous runs.\n");
             continue_run = 1;
             read_last_commit(&last_commit_id, last_commit_path);
