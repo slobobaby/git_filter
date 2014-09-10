@@ -60,8 +60,6 @@ typedef struct _tree_filter {
 
     dict_t *deleted_merges;
     dict_t *deleted_commits;
-
-    char first;
 } tree_filter_t;
 
 typedef struct _rev_info_dump_t
@@ -310,7 +308,7 @@ static void read_last_commit(git_oid *commit_id, const char *filename)
 }
 
 
-static unsigned int read_revinfo(
+static void read_revinfo(
         dict_t *revdict, dict_t *deleted_merges, dict_t *deleted_commits,
         git_repository *repo, const char *filename)
 {
@@ -370,13 +368,10 @@ static unsigned int read_revinfo(
     }
 
     fclose(f);
-
-    return lineno;
 }
 
 void tree_filter_init(tree_filter_t *tf, git_repository *repo)
 {
-    int count = 0;
     include_dirs_init(&tf->id, tf->include_file);
 
     tf->repo = repo;
@@ -390,13 +385,10 @@ void tree_filter_init(tree_filter_t *tf, git_repository *repo)
     if (continue_run)
     {
         char *full_path = savefile(tf->name, ".revinfo");
-        count = read_revinfo(tf->revdict, tf->deleted_merges,
+        read_revinfo(tf->revdict, tf->deleted_merges,
                        tf->deleted_commits, repo, full_path);
         free(full_path);
     }
-
-    if (count == 0)
-        tf->first = 1;
 }
 
 void tree_filter_fini(tree_filter_t *tf)
@@ -789,11 +781,8 @@ void create_commit(tree_filter_t *tf, git_tree *tree,
     author = git_commit_author(commit);
 
     commit_list_init(&commit_list);
-    if (tf->first)
-        tf->first = 0;
-    else
-        find_new_parents(commit, tf->revdict, tf->deleted_merges,
-                        tf->deleted_commits, &commit_list);
+    find_new_parents(commit, tf->revdict, tf->deleted_merges,
+		    tf->deleted_commits, &commit_list);
 
     /* skip commits which have identical trees but only
        in the simple case of one parent */
