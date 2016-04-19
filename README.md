@@ -83,7 +83,7 @@ Neither of these systems had a pre installed `libgit2`.
 Config File Syntax
 ==================
 
-Look at the [`filter.cfg`](filter.cfg) example, it is commented.
+Look at the [`git_filter.cfg`](git_filter.cfg) example, it is commented.
 
 Config items and data
 ---------------------
